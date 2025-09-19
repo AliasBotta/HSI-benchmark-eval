@@ -1,0 +1,60 @@
+# ======================================
+# Python
+# ======================================
+__pycache__/
+*.py[cod]
+*.pyo
+*.so
+*.egg-info/
+*.egg
+*.pkl
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb_convert/
+
+# Cache / logs
+*.log
+*.out
+*.err
+*.tmp
+*.bak
+
+# ======================================
+# Project-specific
+# ======================================
+
+# Data (do not version large datasets)
+data/
+!data/README.md   # keep a placeholder readme if needed
+
+# Outputs of experiments
+outputs/
+
+# Checkpoints / weights
+*.pth
+*.pt
+*.ckpt
+checkpoints/
+
+# Generated results and figures
+figures/
+*.png
+*.jpg
+*.jpeg
+*.tif
+*.tiff
+
+# ======================================
+# Editors / IDE
+# ======================================
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
