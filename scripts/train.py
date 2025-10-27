@@ -49,6 +49,10 @@ def main(cfg_path):
 
     # Load dataset
     X, y, pids = load_all_processed(cfg.data.processed_dir)
+    # --- Filter labels
+    mask = (y > 0) & (y < 4)
+    X, y = X[mask], y[mask] - 1
+    y = y - 1  # remap {1,2} -> {0,1}
     (X_train, y_train), (X_val, y_val), (X_test, y_test) = split_by_patient(X, y, pids, cfg)
 
     # Convert to tensors
