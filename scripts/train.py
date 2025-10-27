@@ -56,11 +56,11 @@ def main(cfg_path):
 
     # Convert to tensors
     X_train_t = torch.tensor(X_train, dtype=torch.float32)
-    y_train_t = torch.tensor(y_train - 1, dtype=torch.long)
+    y_train_t = torch.tensor(y_train, dtype=torch.long)
     X_val_t = torch.tensor(X_val, dtype=torch.float32)
-    y_val_t = torch.tensor(y_val - 1, dtype=torch.long)
+    y_val_t = torch.tensor(y_val, dtype=torch.long)
     X_test_t = torch.tensor(X_test, dtype=torch.float32)
-    y_test_t = torch.tensor(y_test - 1, dtype=torch.long)
+    y_test_t = torch.tensor(y_test, dtype=torch.long)
 
     train_loader = DataLoader(TensorDataset(X_train_t, y_train_t), batch_size=cfg.training.batch_size, shuffle=True)
     val_loader = DataLoader(TensorDataset(X_val_t, y_val_t), batch_size=cfg.training.batch_size, shuffle=False)
