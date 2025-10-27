@@ -1,0 +1,50 @@
+# ===============================
+# EXPERIMENT 5 - EBEAE UNMIXING (LINEAR)
+# ===============================
+defaults:
+  - default.yaml
+
+experiment:
+  name: exp5_ebeae
+  description: "Linear Entropy-Based Endmember Extraction Algorithm (EBEAE)"
+  output_dir: outputs/exp5_ebeae
+
+model:
+  name: ebeae
+  type: unmixing
+  linear: true
+  num_endmembers:
+    TT: 2
+    NT: 2
+    BV: 1
+    BG: 3
+  rho:
+    TT: 0.2
+    NT: 0.3
+    BG: 0.01
+  gamma: 0.1
+  similarity_metric: spectral_angle_mapper
+  max_iterations: 200
+  library: custom_matlab_replica
+
+# --- reduction and partition consistent with other experiments ---
+reduction:
+  enabled: true
+  method: kmeans
+  clusters_per_class: 100
+  pixels_per_centroid: 20
+  total_per_class: 2000
+
+partition:
+  folds: 5
+  split: [0.6, 0.2, 0.2]
+  level: patient
+  random_seed: 42
+
+evaluation:
+  metrics: [f1_macro, oa, sensitivity, specificity]
+  exclude_classes: [BG]
+  average: macro
+  visualize_results: true
+  save_density_map: true
+
