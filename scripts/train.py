@@ -12,6 +12,7 @@ import torch
 import torch.nn as nn
 from torch.utils.data import TensorDataset, DataLoader
 from omegaconf import OmegaConf
+import os
 
 from utils.helpers import setup_logger, set_seed, get_device, ensure_dir
 from utils.dataset import load_all_processed, split_by_patient
@@ -36,7 +37,12 @@ def evaluate(model, loader, device, num_classes):
 
 
 def main(cfg_path):
+    # --- Load config, merging with default if specified ---
     cfg = OmegaConf.load(cfg_path)
+    default_cfg_path = os.path.join("configs", "default.yaml")
+    if "defaults" in cfg and os.path.exists(default_cfg_path):
+        base_cfg = OmegaConf.load(default_cfg_path)
+        cfg = OmegaConf.merge(base_cfg, cfg)
     set_seed(cfg.experiment.seed)
     device = get_device(cfg.experiment.device)
     logger = setup_logger("outputs/logs", name=cfg.experiment.name)
