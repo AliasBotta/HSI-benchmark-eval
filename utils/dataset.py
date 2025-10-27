@@ -33,6 +33,8 @@ def load_all_processed(data_dir):
         gt = np.load(gt_path)           # (H, W)
 
         # flatten spatial dims
+        if gt.ndim == 3 and gt.shape[-1] == 1:
+            gt = gt.squeeze(-1)
         H, W = gt.shape
         cube_flat = cube.reshape(cube.shape[0], -1).T   # (H*W, bands)
         gt_flat = gt.flatten()
