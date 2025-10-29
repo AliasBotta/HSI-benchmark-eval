@@ -57,12 +57,10 @@ def main(cfg_path):
     from utils.dataset import make_kfold_splits
     results = []
 
-    for fold_idx, split in enumerate(make_kfold_splits(X, y, pids, cfg)):
+    for fold_idx, train_set, val_set, test_set in make_kfold_splits(X, y, pids, cfg):
         logger.info(f"===== Fold {fold_idx+1}/{cfg.partition.folds} =====")
+        (X_train, y_train), (X_val, y_val), (X_test, y_test) = train_set, val_set, test_set
 
-        X_train, y_train = split["X_train"], split["y_train"]
-        X_val, y_val     = split["X_val"], split["y_val"]
-        X_test, y_test   = split["X_test"], split["y_test"]
         # === Apply data reduction on training set ===
         if getattr(cfg.reduction, "enabled", False):
             X_train, y_train = reduce_training_data(X_train, y_train, cfg)
