@@ -18,6 +18,7 @@ from utils.helpers import setup_logger, set_seed, get_device, ensure_dir
 from utils.dataset import load_all_processed, split_by_patient
 from utils.metrics import compute_all_metrics
 from models.dnn_1d import DNN1D
+from utils.data_reduction import reduce_training_data
 
 
 def evaluate(model, loader, device, num_classes):
@@ -60,6 +61,10 @@ def main(cfg_path):
         logger.info(f"===== Fold {fold_idx+1}/{cfg.partition.folds} =====")
         (X_train, y_train), (X_val, y_val), (X_test, y_test) = train_set, val_set, test_set
 
+        # === Apply data reduction on training set ===
+        if getattr(cfg.reduction, "enabled", False):
+            X_train, y_train = reduce_training_data(X_train, y_train, cfg)
+
         # Convert to tensors
         X_train_t = torch.tensor(X_train, dtype=torch.float32)
         y_train_t = torch.tensor(y_train, dtype=torch.long)
@@ -98,15 +103,19 @@ def main(cfg_path):
                             f"Val F1={metrics_val['f1_macro']:.3f}, OA={metrics_val['oa']:.3f}")
 
         metrics_test = evaluate(model, test_loader, device, cfg.model.num_classes)
+        logger.info(f"[Fold {fold_idx+1}] Test metrics: {metrics_test}")
         results.append(metrics_test)
         logger.info(f"[Fold {fold_idx+1}] Test F1={metrics_test['f1_macro']:.3f}, OA={metrics_test['oa']:.3f}")
 
     # Aggregate and save fold results
     df = pd.DataFrame(results)
     df.loc["mean"] = df.mean()
+    df.loc["std"] = df.std()
     ensure_dir(cfg.experiment.output_dir)
     df.to_csv(Path(cfg.experiment.output_dir) / "metrics_kfold.csv", index=True)
-    logger.info("📊 Saved metrics_kfold.csv (per-fold and mean results)")
+
+    logger.info("📊 Saved metrics_kfold.csv with per-fold mean ± std results")
+    logger.info(f"\n{df.tail(2)}")
 
 
 if __name__ == "__main__":

@@ -113,7 +113,6 @@ def list_all_instances(root_dir):
         for instance_dir in campaign_dir.iterdir():
             if not instance_dir.is_dir():
                 continue
-            # Expect that the instance folder contains required files
             if (instance_dir / "raw.hdr").exists() or (instance_dir / "raw").exists():
                 instances.append(instance_dir)
     return sorted(instances)

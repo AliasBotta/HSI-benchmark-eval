@@ -12,31 +12,47 @@ from sklearn.model_selection import KFold
 
 def make_kfold_splits(X, y, patient_ids, cfg):
     """
-    Perform k-fold cross-validation at patient level.
-    For each fold, yield train/val/test sets.
-    The test fold is held out; training patients are split again into train/val.
+    Perform k-fold cross-validation at patient level according to config split ratios.
+
+    cfg.partition.split = [train_ratio, val_ratio, test_ratio]
+    ensures approximately that each fold uses the specified proportions.
     """
+
     unique_pids = np.unique(patient_ids)
-    kf = KFold(n_splits=cfg.partition.folds, shuffle=True, random_state=cfg.partition.random_seed)
+    rng = np.random.default_rng(cfg.partition.random_seed)
+    rng.shuffle(unique_pids)
 
-    for fold_idx, (train_val_idx, test_idx) in enumerate(kf.split(unique_pids)):
-        test_pids = unique_pids[test_idx]
-        train_val_pids = unique_pids[train_val_idx]
+    n_total = len(unique_pids)
+    n_train = int(cfg.partition.split[0] * n_total)
+    n_val   = int(cfg.partition.split[1] * n_total)
+    n_test  = n_total - n_train - n_val
 
-        # Internal train/val split
-        n_val = int(cfg.partition.split[1] / (cfg.partition.split[0] + cfg.partition.split[1]) * len(train_val_pids))
-        rng = np.random.default_rng(cfg.partition.random_seed + fold_idx)
-        rng.shuffle(train_val_pids)
-        val_pids = train_val_pids[:n_val]
-        train_pids = train_val_pids[n_val:]
+    # 5 folds => rotate test set position across splits
+    fold_size = max(1, n_test)
+    folds = []
+    for fold_idx in range(cfg.partition.folds):
+        start = fold_idx * fold_size % n_total
+        end   = (start + fold_size) % n_total
+
+        if end > start:
+            test_pids = unique_pids[start:end]
+            remain_pids = np.concatenate([unique_pids[:start], unique_pids[end:]])
+        else:
+            test_pids = np.concatenate([unique_pids[start:], unique_pids[:end]])
+            remain_pids = np.setdiff1d(unique_pids, test_pids)
+
+        # Within remaining, take val and train respecting ratios
+        n_remain = len(remain_pids)
+        n_val_local = int(cfg.partition.split[1] / (cfg.partition.split[0] + cfg.partition.split[1]) * n_remain)
+        rng.shuffle(remain_pids)
+        val_pids = remain_pids[:n_val_local]
+        train_pids = remain_pids[n_val_local:]
 
         def select(pids):
             mask = np.isin(patient_ids, pids)
             return X[mask], y[mask]
 
         yield fold_idx, select(train_pids), select(val_pids), select(test_pids)
-
-
 
 def load_all_processed(data_dir):
     """
