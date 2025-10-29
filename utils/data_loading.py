@@ -54,10 +54,6 @@ def load_gt_map(base_path):
     return gt_map
 
 
-# ============================================================
-# Dataset Instance Loader
-# ============================================================
-
 def load_dataset_instance(instance_dir, cfg):
     """
     Load all components of a single dataset instance folder:
@@ -70,21 +66,30 @@ def load_dataset_instance(instance_dir, cfg):
     d = Path(instance_dir)
     data = {}
 
+    def safe_load_image(base_name):
+        # Try lowercase / capitalized variants
+        for name in [base_name, base_name.capitalize()]:
+            path = d / name
+            if path.exists() or (path.with_suffix(".hdr").exists()):
+                return load_envi_image(path)
+        raise FileNotFoundError(f"Missing file for {base_name} in {d}")
+
     try:
-        data["raw"] = load_envi_image(d / cfg.data.raw_cube_name)
-        data["white_ref"] = load_envi_image(d / cfg.data.white_ref_name)
-        data["dark_ref"] = load_envi_image(d / cfg.data.dark_ref_name)
+        data["raw"] = safe_load_image(cfg.data.raw_cube_name)
+        data["white_ref"] = safe_load_image(cfg.data.white_ref_name)
+        data["dark_ref"] = safe_load_image(cfg.data.dark_ref_name)
         data["gt"] = load_gt_map(d / cfg.data.gt_map_name)
     except Exception as e:
         print(f"[WARNING] Could not load {instance_dir}: {e}")
         return None
 
-    # Validate dimensions
+    # Validate shapes
     if data["raw"].shape[1:] != data["gt"].shape:
         print(f"[WARNING] Shape mismatch in {instance_dir}: "
               f"raw {data['raw'].shape[1:]} vs gt {data['gt'].shape}")
 
     return data
+
 
 
 # ============================================================
@@ -93,14 +98,26 @@ def load_dataset_instance(instance_dir, cfg):
 
 def list_all_instances(root_dir):
     """
-    Recursively list all HSI capture folders in the dataset.
-    Example: /data/hsi_dataset/004-02/004-02 -> returned as Path
+    Recursively list all valid dataset instances under multiple campaigns.
+    Works with structure like:
+        FirstCampaign/004-02/
+        SecondCampaign/037-01/
+        ThirdCampaign/050-01/
+    Returns a list of Paths, each pointing to the folder containing raw/whiteReference/darkReference/gtMap.
     """
     instances = []
-    for p in Path(root_dir).rglob("*"):
-        if p.is_dir() and (p / p.name).exists():  # matches 004-02/004-02 pattern
-            instances.append(p / p.name)
+    root_dir = Path(root_dir)
+    for campaign_dir in root_dir.iterdir():
+        if not campaign_dir.is_dir():
+            continue
+        for instance_dir in campaign_dir.iterdir():
+            if not instance_dir.is_dir():
+                continue
+            # Expect that the instance folder contains required files
+            if (instance_dir / "raw.hdr").exists() or (instance_dir / "raw").exists():
+                instances.append(instance_dir)
     return sorted(instances)
+
 
 
 def load_instance_paths(instance_dir):

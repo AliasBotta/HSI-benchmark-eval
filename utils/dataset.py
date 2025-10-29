@@ -8,6 +8,34 @@ into flat pixel-wise arrays for training and evaluation.
 from pathlib import Path
 import numpy as np
 from sklearn.model_selection import train_test_split
+from sklearn.model_selection import KFold
+
+def make_kfold_splits(X, y, patient_ids, cfg):
+    """
+    Perform k-fold cross-validation at patient level.
+    For each fold, yield train/val/test sets.
+    The test fold is held out; training patients are split again into train/val.
+    """
+    unique_pids = np.unique(patient_ids)
+    kf = KFold(n_splits=cfg.partition.folds, shuffle=True, random_state=cfg.partition.random_seed)
+
+    for fold_idx, (train_val_idx, test_idx) in enumerate(kf.split(unique_pids)):
+        test_pids = unique_pids[test_idx]
+        train_val_pids = unique_pids[train_val_idx]
+
+        # Internal train/val split
+        n_val = int(cfg.partition.split[1] / (cfg.partition.split[0] + cfg.partition.split[1]) * len(train_val_pids))
+        rng = np.random.default_rng(cfg.partition.random_seed + fold_idx)
+        rng.shuffle(train_val_pids)
+        val_pids = train_val_pids[:n_val]
+        train_pids = train_val_pids[n_val:]
+
+        def select(pids):
+            mask = np.isin(patient_ids, pids)
+            return X[mask], y[mask]
+
+        yield fold_idx, select(train_pids), select(val_pids), select(test_pids)
+
 
 
 def load_all_processed(data_dir):

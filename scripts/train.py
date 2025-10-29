@@ -47,67 +47,66 @@ def main(cfg_path):
     device = get_device(cfg.experiment.device)
     logger = setup_logger("outputs/logs", name=cfg.experiment.name)
 
-    # Load dataset
+        # --- Load dataset and filter labels ---
     X, y, pids = load_all_processed(cfg.data.processed_dir)
-    # --- Filter valid labels: keep TT, NT, BV (exclude 0=unlabeled, 4=BG)
     mask = (y > 0) & (y < 4)
     X, y, pids = X[mask], y[mask] - 1, pids[mask]
-    (X_train, y_train), (X_val, y_val), (X_test, y_test) = split_by_patient(X, y, pids, cfg)
 
-    # Convert to tensors
-    X_train_t = torch.tensor(X_train, dtype=torch.float32)
-    y_train_t = torch.tensor(y_train, dtype=torch.long)
-    X_val_t = torch.tensor(X_val, dtype=torch.float32)
-    y_val_t = torch.tensor(y_val, dtype=torch.long)
-    X_test_t = torch.tensor(X_test, dtype=torch.float32)
-    y_test_t = torch.tensor(y_test, dtype=torch.long)
+    # --- Perform 5-fold CV ---
+    from utils.dataset import make_kfold_splits
+    results = []
 
-    train_loader = DataLoader(TensorDataset(X_train_t, y_train_t), batch_size=cfg.training.batch_size, shuffle=True)
-    val_loader = DataLoader(TensorDataset(X_val_t, y_val_t), batch_size=cfg.training.batch_size, shuffle=False)
-    test_loader = DataLoader(TensorDataset(X_test_t, y_test_t), batch_size=cfg.training.batch_size, shuffle=False)
+    for fold_idx, (train_set, val_set, test_set) in make_kfold_splits(X, y, pids, cfg):
+        logger.info(f"===== Fold {fold_idx+1}/{cfg.partition.folds} =====")
+        (X_train, y_train), (X_val, y_val), (X_test, y_test) = train_set, val_set, test_set
 
-    # Model setup
-    model = DNN1D(cfg.model).to(device)
-    criterion = nn.CrossEntropyLoss()
-    optimizer = torch.optim.SGD(model.parameters(), lr=cfg.training.learning_rate)
+        # Convert to tensors
+        X_train_t = torch.tensor(X_train, dtype=torch.float32)
+        y_train_t = torch.tensor(y_train, dtype=torch.long)
+        X_val_t = torch.tensor(X_val, dtype=torch.float32)
+        y_val_t = torch.tensor(y_val, dtype=torch.long)
+        X_test_t = torch.tensor(X_test, dtype=torch.float32)
+        y_test_t = torch.tensor(y_test, dtype=torch.long)
 
-    # Training loop
-    logger.info(f"Training DNN for {cfg.training.epochs} epochs...")
-    for epoch in range(cfg.training.epochs):
-        model.train()
-        total_loss = 0
-        for xb, yb in train_loader:
-            xb, yb = xb.to(device), yb.to(device)
-            optimizer.zero_grad()
-            loss = criterion(model(xb), yb)
-            loss.backward()
-            optimizer.step()
-            total_loss += loss.item()
+        train_loader = DataLoader(TensorDataset(X_train_t, y_train_t),
+                                  batch_size=cfg.training.batch_size, shuffle=True)
+        val_loader = DataLoader(TensorDataset(X_val_t, y_val_t),
+                                batch_size=cfg.training.batch_size, shuffle=False)
+        test_loader = DataLoader(TensorDataset(X_test_t, y_test_t),
+                                 batch_size=cfg.training.batch_size, shuffle=False)
 
-        # Optional: validation loss
-        if (epoch + 1) % 10 == 0:
-            metrics_val = evaluate(model, val_loader, device, cfg.model.num_classes)
-            logger.info(f"Epoch {epoch+1}: TrainLoss={total_loss/len(train_loader):.4f}, "
-                        f"Val F1={metrics_val['f1_macro']:.3f}, OA={metrics_val['oa']:.3f}")
+        # Model setup
+        model = DNN1D(cfg.model).to(device)
+        criterion = nn.CrossEntropyLoss()
+        optimizer = torch.optim.SGD(model.parameters(), lr=cfg.training.learning_rate)
 
-    # Save model
+        for epoch in range(cfg.training.epochs):
+            model.train()
+            total_loss = 0
+            for xb, yb in train_loader:
+                xb, yb = xb.to(device), yb.to(device)
+                optimizer.zero_grad()
+                loss = criterion(model(xb), yb)
+                loss.backward()
+                optimizer.step()
+                total_loss += loss.item()
+
+            if (epoch + 1) % 10 == 0:
+                metrics_val = evaluate(model, val_loader, device, cfg.model.num_classes)
+                logger.info(f"[Fold {fold_idx+1}] Epoch {epoch+1}: "
+                            f"TrainLoss={total_loss/len(train_loader):.4f}, "
+                            f"Val F1={metrics_val['f1_macro']:.3f}, OA={metrics_val['oa']:.3f}")
+
+        metrics_test = evaluate(model, test_loader, device, cfg.model.num_classes)
+        results.append(metrics_test)
+        logger.info(f"[Fold {fold_idx+1}] Test F1={metrics_test['f1_macro']:.3f}, OA={metrics_test['oa']:.3f}")
+
+    # Aggregate and save fold results
+    df = pd.DataFrame(results)
+    df.loc["mean"] = df.mean()
     ensure_dir(cfg.experiment.output_dir)
-    model_path = Path(cfg.experiment.output_dir) / "model.pth"
-    torch.save(model.state_dict(), model_path)
-    logger.info(f"✅ Training complete, model saved → {model_path}")
-
-    # --- Evaluation on test set ---
-    logger.info("Evaluating on test set...")
-    metrics_test = evaluate(model, test_loader, device, cfg.model.num_classes)
-    logger.info(f"Test results: F1={metrics_test['f1_macro']:.3f}, "
-                f"OA={metrics_test['oa']:.3f}, "
-                f"Sens={metrics_test['sensitivity_mean']:.3f}, "
-                f"Spec={metrics_test['specificity_mean']:.3f}")
-
-    # Save results to CSV
-    df = pd.DataFrame([metrics_test])
-    df.to_csv(Path(cfg.experiment.output_dir) / "metrics.csv", index=False)
-    logger.info("📊 Saved metrics.csv")
+    df.to_csv(Path(cfg.experiment.output_dir) / "metrics_kfold.csv", index=True)
+    logger.info("📊 Saved metrics_kfold.csv (per-fold and mean results)")
 
 
 if __name__ == "__main__":
