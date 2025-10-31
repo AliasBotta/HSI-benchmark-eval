@@ -74,7 +74,7 @@ def main(cfg_path):
         # --- Perform k-fold CV ---
         results = []
         from utils.dataset import make_kfold_splits
-        for fold_idx, (train_set, val_set, test_set) in make_kfold_splits(X_filtered, y, pids, cfg):
+        for fold_idx, train_set, val_set, test_set in make_kfold_splits(X_filtered, y, pids, cfg):
             (X_train, y_train), (X_val, y_val), (X_test, y_test) = train_set, val_set, test_set
 
             # Optionally perform data reduction
