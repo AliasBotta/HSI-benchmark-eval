@@ -83,7 +83,11 @@ def main(cfg_path):
         # Model setup
         model = DNN1D(cfg.model).to(device)
         criterion = nn.CrossEntropyLoss()
-        optimizer = torch.optim.SGD(model.parameters(), lr=cfg.training.learning_rate)
+        optimizer = torch.optim.SGD(
+            model.parameters(),
+            lr=cfg.training.learning_rate,
+            momentum=getattr(cfg.training, "momentum", 0.9)
+        )
 
         for epoch in range(cfg.training.epochs):
             model.train()

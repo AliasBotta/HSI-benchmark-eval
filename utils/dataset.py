@@ -87,7 +87,8 @@ def load_all_processed(data_dir):
         mask = gt_flat > 0
         X_list.append(cube_flat[mask])
         y_list.append(gt_flat[mask])
-        pid_list.extend([inst.name] * mask.sum())
+        pid = inst.name.split('-')[0]
+        pid_list.extend([pid] * mask.sum())
 
     X = np.concatenate(X_list, axis=0)
     y = np.concatenate(y_list, axis=0)

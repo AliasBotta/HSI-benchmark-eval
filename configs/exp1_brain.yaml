@@ -18,7 +18,7 @@ model:
   hidden_dims: [256, 128]     # optimized 'L' from paper
   activation: relu
   batch_norm: true
-  dropout: 0.0
+  dropout: 0.5
   optimizer: sgd
   learning_rate: 0.1
   epochs: 300
@@ -44,4 +44,12 @@ evaluation:
   average: macro
   visualize_results: true
   save_density_map: true
+
+training:
+  epochs: 300
+  batch_size: 64
+  learning_rate: 0.1
+  optimizer: sgd
+  momentum: 0.9   # ← aggiungi questa
+
 

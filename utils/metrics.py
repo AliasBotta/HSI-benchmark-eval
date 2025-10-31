@@ -9,7 +9,7 @@ Implements evaluation metrics used in the HSI benchmark paper:
 """
 
 import numpy as np
-from sklearn.metrics import f1_score, recall_score, confusion_matrix
+from sklearn.metrics import f1_score, recall_score, accuracy_score, confusion_matrix
 
 
 def overall_accuracy(y_true, y_pred):
@@ -35,14 +35,23 @@ def sensitivity_specificity(y_true, y_pred, num_classes):
 
 
 def compute_all_metrics(y_true, y_pred, num_classes):
-    """Compute all evaluation metrics and return as dict."""
-    f1 = f1_score(y_true, y_pred, average="macro")
-    oa = overall_accuracy(y_true, y_pred)
-    sens, spec = sensitivity_specificity(y_true, y_pred, num_classes)
-    return {
-        "f1_macro": f1,
-        "oa": oa,
-        "sensitivity_mean": sens.mean(),
-        "specificity_mean": spec.mean(),
-    }
+    metrics = {}
+
+    metrics["f1_macro"] = f1_score(y_true, y_pred, average="macro")
+    metrics["oa"] = accuracy_score(y_true, y_pred)
+
+    # Sensitivity (recall) and specificity mean
+    cm = confusion_matrix(y_true, y_pred, labels=range(num_classes))
+    sensitivity = np.diag(cm) / (cm.sum(axis=1) + 1e-8)
+    specificity = (np.sum(cm) - (cm.sum(axis=1) + cm.sum(axis=0) - np.diag(cm))) / (np.sum(cm) - cm.sum(axis=1) + 1e-8)
+
+    metrics["sensitivity_mean"] = np.mean(sensitivity)
+    metrics["specificity_mean"] = np.mean(specificity)
+
+    # 👉 aggiungi qui metriche per classe
+    for i, (se, sp) in enumerate(zip(sensitivity, specificity)):
+        metrics[f"sens_class_{i}"] = se
+        metrics[f"spec_class_{i}"] = sp
+
+    return metrics
 

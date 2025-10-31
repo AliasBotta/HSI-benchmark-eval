@@ -62,4 +62,8 @@ def reduce_training_data(X, y, cfg):
     y_red = np.concatenate(y_reduced)
     print(f"[Data Reduction] Reduced training set to {len(y_red)} pixels "
           f"({K} clusters × {n_per_centroid} per class).")
+    
+    classes, counts = np.unique(y_red, return_counts=True)
+    for c, n in zip(classes, counts):
+        print(f"[Class {c}] {n} pixels after reduction")
     return X_red, y_red
