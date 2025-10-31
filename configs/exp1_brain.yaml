@@ -15,7 +15,7 @@ model:
   type: deep
   input_channels: 128         # after spectral downsampling
   num_classes: 3              # TT, NT, BV  (BG excluded in metrics)
-  hidden_dims: [256, 128]     # optimized 'L' from paper
+  hidden_dims: [256, 256]     # optimized 'L' from paper
   activation: relu
   batch_norm: true
   dropout: 0.5
