@@ -65,9 +65,9 @@ def downsample_spectrum(data, step=3.61, final_channels=128):
     return data[idx]
 
 
-def normalize_minmax(data, axis=(1,2)):
-    dmin = data.min(axis=axis, keepdims=True)
-    dmax = data.max(axis=axis, keepdims=True)
+def normalize_minmax(data):
+    dmin = data.min()
+    dmax = data.max()
     return (data - dmin) / (dmax - dmin + 1e-8)
 
 

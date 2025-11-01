@@ -107,15 +107,22 @@ def main(cfg_path):
                                 batch_size=cfg.training.batch_size, shuffle=False)
         test_loader = DataLoader(TensorDataset(X_test_t, y_test_t),
                                  batch_size=cfg.training.batch_size, shuffle=False)
-
         # --- Define model ---
         model = DNN1D(cfg.model).to(device)
-        criterion = nn.CrossEntropyLoss()
+
+        # --- Compute class weights (inversamente proporzionali alla frequenza)
+        class_counts = np.bincount(y_train)
+        class_weights = torch.tensor(1.0 / (class_counts + 1e-8), dtype=torch.float32)
+        class_weights = class_weights / class_weights.sum() * len(class_counts)
+        criterion = nn.CrossEntropyLoss(weight=class_weights.to(device))
+
+        # --- Optimizer ---
         optimizer = torch.optim.SGD(
             model.parameters(),
             lr=cfg.training.learning_rate,
             momentum=getattr(cfg.training, "momentum", 0.9)
         )
+
 
         # --- Train ---
         for epoch in range(cfg.training.epochs):

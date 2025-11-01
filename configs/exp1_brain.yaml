@@ -54,7 +54,7 @@ training:
 
 postprocessing:
   hkm:
-    num_clusters: 24
+    num_clusters: 20
 
 
 

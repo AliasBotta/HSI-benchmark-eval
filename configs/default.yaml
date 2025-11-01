@@ -70,12 +70,12 @@ spatial_spectral:
   knn_filter:
     enabled: true
     lambda: 1
-    K: 40
+    K: 25
     window_size: 8
     distance: euclidean
   hkm:
     enabled: true
-    clusters: 24
+    clusters: 20
   mv:
     enabled: true
     method: fusion_color_gradient
