@@ -145,10 +145,21 @@ def main(cfg_path):
         )
         logger.info(f"[Spectral] F1={metrics_spectral['f1_macro']:.3f}, OA={metrics_spectral['oa']:.3f}")
 
-        # =======================================================
+               # =======================================================
         # 2. Spatial–Spectral (KNN filter)
         # =======================================================
-        prob_map_knn = apply_knn_filter(prob_map, cube=None, cfg=cfg)
+        # Attempt to load cube from processed data
+        patient_id = str(pids[0]).split('-')[0]
+        cube_path = Path(cfg.data.processed_dir) / f"{patient_id}-01" / "preprocessed_cube.npy"
+
+        if cube_path.exists():
+            cube = np.load(cube_path)
+            logger.info(f"[Spatial–Spectral] Loaded cube for KNN filtering: {cube_path}")
+        else:
+            cube = None
+            logger.warning("[Spatial–Spectral] ⚠ Cube not found, fallback to 1D smoothing")
+
+        prob_map_knn = apply_knn_filter(prob_map, cube=cube, cfg=cfg)
         preds_knn = np.argmax(prob_map_knn, axis=1)
         metrics_spatial = compute_all_metrics(y_true, preds_knn, cfg.model.num_classes)
         logger.info(f"[Spatial–Spectral] F1={metrics_spatial['f1_macro']:.3f}, OA={metrics_spatial['oa']:.3f}")
@@ -156,7 +167,7 @@ def main(cfg_path):
         # =======================================================
         # 3. Majority Voting (HKM + voting)
         # =======================================================
-        preds_mv = majority_voting(prob_map_knn, cube=None, cfg=cfg)
+        preds_mv = majority_voting(prob_map_knn, cube=cube, cfg=cfg)
         metrics_mv = compute_all_metrics(y_true, preds_mv, cfg.model.num_classes)
         logger.info(f"[Majority Voting] F1={metrics_mv['f1_macro']:.3f}, OA={metrics_mv['oa']:.3f}")
 
