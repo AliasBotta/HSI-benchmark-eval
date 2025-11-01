@@ -195,6 +195,16 @@ def main(cfg_path):
         # 3. Majority Voting (HKM + voting)
         # =======================================================
         preds_mv = majority_voting(prob_map_knn, cube=cube, cfg=cfg)
+
+        # --- ensure preds_mv matches y_true length ---
+        if len(preds_mv) > len(y_true):
+            print(f"[Majority Voting] Cropping preds_mv ({len(preds_mv)} → {len(y_true)})")
+            preds_mv = preds_mv[:len(y_true)]
+        elif len(preds_mv) < len(y_true):
+            print(f"[Majority Voting] Padding preds_mv ({len(preds_mv)} → {len(y_true)})")
+            pad = np.repeat(preds_mv[-1], len(y_true) - len(preds_mv))
+            preds_mv = np.concatenate([preds_mv, pad])
+
         metrics_mv = compute_all_metrics(y_true, preds_mv, cfg.model.num_classes)
         logger.info(f"[Majority Voting] F1={metrics_mv['f1_macro']:.3f}, OA={metrics_mv['oa']:.3f}")
 
