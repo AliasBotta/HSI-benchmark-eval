@@ -178,13 +178,17 @@ def main(cfg_path):
         prob_map_knn = apply_knn_filter(prob_map, cube=cube, cfg=cfg)
         preds_knn = np.argmax(prob_map_knn, axis=1)
 
-        # --- align prediction length to y_true ---
-        if len(preds_knn) != len(y_true):
-            print(f"[Spatial–Spectral] Aligning prediction length: {len(preds_knn)} → {len(y_true)}")
+        # --- ensure preds_knn matches y_true length ---
+        if len(preds_knn) > len(y_true):
+            print(f"[Spatial–Spectral] Cropping preds_knn ({len(preds_knn)} → {len(y_true)})")
             preds_knn = preds_knn[:len(y_true)]
-
+        elif len(preds_knn) < len(y_true):
+            print(f"[Spatial–Spectral] Padding preds_knn ({len(preds_knn)} → {len(y_true)})")
+            pad = np.repeat(preds_knn[-1], len(y_true) - len(preds_knn))
+            preds_knn = np.concatenate([preds_knn, pad])
 
         metrics_spatial = compute_all_metrics(y_true, preds_knn, cfg.model.num_classes)
+
         logger.info(f"[Spatial–Spectral] F1={metrics_spatial['f1_macro']:.3f}, OA={metrics_spatial['oa']:.3f}")
 
         # =======================================================
