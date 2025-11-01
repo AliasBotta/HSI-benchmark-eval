@@ -6,11 +6,10 @@ from scipy.ndimage import uniform_filter1d
 def apply_knn_filter(prob_map, cube, cfg):
     """
     Apply KNN smoothing to model probability maps guided by PCA(1) image.
-    Faithful to HSI-benchmark (2D spatial smoothing guided by PC1).
+    Faithful to HSI-benchmark (2D smoothing guided by PC1).
     """
     print("[Spatial Filtering] Applying KNN filter guided by PCA(1)...")
 
-    # ---- fallback if no cube ----
     if cube is None:
         print("[Spatial Filtering] ⚠ No cube provided — applying 1D fallback smoothing.")
         return uniform_filter1d(prob_map, size=3, axis=0)
@@ -30,7 +29,7 @@ def apply_knn_filter(prob_map, cube, cfg):
     yy, xx = np.mgrid[0:H, 0:W]
     features = np.stack([pca_img.ravel(), lam * yy.ravel(), lam * xx.ravel()], axis=1)
 
-    # --- handle size mismatch (prob_map < all pixels) ---
+    # --- pad prob_map to full size (if only labeled pixels) ---
     n_probs = prob_map.shape[0]
     if n_probs < n_pixels:
         print(f"[Spatial Filtering] Padding prob_map ({n_probs} → {n_pixels}) for full-image smoothing")
@@ -47,7 +46,7 @@ def apply_knn_filter(prob_map, cube, cfg):
     for c in range(n_classes):
         smoothed_full[:, c] = np.mean(prob_map_full[indices, c], axis=1)
 
-    # --- crop back to labeled pixels ---
+    # --- crop back to labeled pixels *after* smoothing ---
     smoothed = smoothed_full[:n_probs]
 
     print("[Spatial Filtering] ✅ KNN smoothing complete.")
