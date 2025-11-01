@@ -50,6 +50,11 @@ training:
   batch_size: 64
   learning_rate: 0.1
   optimizer: sgd
-  momentum: 0.9   # ← aggiungi questa
+  momentum: 0.9   
+
+postprocessing:
+  hkm:
+    num_clusters: 24
+
 
 
