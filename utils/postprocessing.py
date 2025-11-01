@@ -1,30 +1,41 @@
 import numpy as np
 from sklearn.cluster import KMeans
 
-def majority_voting(prob_map, cube, cfg):
+def majority_voting(prob_map, cube=None, cfg=None):
     """
-    Perform majority voting based on HKM segmentation.
-    Approximates MATLAB hierclust2nmfMulti + majorityVoting().
+    Apply Majority Voting post-processing (as in the benchmark paper).
+    Combines supervised prob. maps with unsupervised segmentation (HKM).
+    If cube=None, performs a safe fallback averaging (1D mode).
     """
     print("[Postprocessing] Applying Majority Voting (HKM)...")
 
-    bands, H, W = cube.shape
-    num_clusters = cfg.spatial_spectral.hkm.clusters
-    cube_flat = cube.reshape(bands, -1).T
+    mv_cfg = getattr(cfg.spatial_spectral, "mv", None)
+    hkm_cfg = getattr(cfg.spatial_spectral, "hkm", None)
 
-    # --- Segment the cube (HKM approx via KMeans) ---
-    km = KMeans(n_clusters=num_clusters, n_init=3, random_state=42)
-    cluster_ids = km.fit_predict(cube_flat)
+    # === CASE 1: full MV fusion (requires cube) ===
+    if cube is not None:
+        bands, H, W = cube.shape
+        cube_flat = cube.reshape(bands, -1).T
 
-    # --- Majority voting per cluster ---
-    preds = np.argmax(prob_map, axis=1)
-    final_preds = np.copy(preds)
-    for cid in range(num_clusters):
-        mask = cluster_ids == cid
-        if np.any(mask):
-            votes = preds[mask]
-            if len(votes) > 0:
-                majority_class = np.bincount(votes).argmax()
-                final_preds[mask] = majority_class
+        # --- Unsupervised segmentation (HKM) ---
+        n_clusters = getattr(hkm_cfg, "clusters", 24)
+        km = KMeans(n_clusters=n_clusters, n_init=5, random_state=42)
+        seg_labels = km.fit_predict(cube_flat)
 
-    return final_preds
+        # --- Majority voting per segment ---
+        preds = np.argmax(prob_map, axis=1)
+        preds_mv = preds.copy()
+        for seg in np.unique(seg_labels):
+            idx = np.where(seg_labels == seg)[0]
+            if len(idx) == 0:
+                continue
+            counts = np.bincount(preds[idx], minlength=prob_map.shape[1])
+            preds_mv[idx] = np.argmax(counts)
+
+        print(f"[Postprocessing] Done (HKM clusters={n_clusters})")
+        return preds_mv
+
+    # === CASE 2: fallback (no cube) ===
+    print("[Postprocessing] ⚠ No cube provided — using direct argmax fusion.")
+    preds_mv = np.argmax(prob_map, axis=1)
+    return preds_mv
