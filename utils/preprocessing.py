@@ -65,15 +65,10 @@ def downsample_spectrum(data, step=3.61, final_channels=128):
     return data[idx]
 
 
-def normalize_minmax(data):
-    """
-    Normalize spectral values to [0, 1].
-    Applied per-cube (global normalization for each instance).
-    """
-    dmin, dmax = data.min(), data.max()
-    if dmax - dmin < 1e-12:
-        return np.zeros_like(data)
-    return (data - dmin) / (dmax - dmin)
+def normalize_minmax(data, axis=(1,2)):
+    dmin = data.min(axis=axis, keepdims=True)
+    dmax = data.max(axis=axis, keepdims=True)
+    return (data - dmin) / (dmax - dmin + 1e-8)
 
 
 def convert_to_absorbance(reflectance):
