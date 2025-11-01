@@ -151,6 +151,12 @@ def main(cfg_path):
             model, test_loader, device, cfg.model.num_classes, return_probs=True
         )
         logger.info(f"[Spectral] F1={metrics_spectral['f1_macro']:.3f}, OA={metrics_spectral['oa']:.3f}")
+        logger.info(f"[Metrics] Sensitivity mean={metrics_spectral['sensitivity_mean']:.3f}, "
+            f"Specificity mean={metrics_spectral['specificity_mean']:.3f}")
+        logger.info(f"[Metrics] Sensitivity per classe: "
+                    f"{[round(v,3) for v in [metrics_spectral[k] for k in metrics_spectral if k.startswith('sens_class_')]]}")
+        logger.info(f"[Metrics] Specificity per classe: "
+                    f"{[round(v,3) for v in [metrics_spectral[k] for k in metrics_spectral if k.startswith('spec_class_')]]}")
 
                # =======================================================
         # 2. Spatial–Spectral (KNN filter)
@@ -190,6 +196,12 @@ def main(cfg_path):
         metrics_spatial = compute_all_metrics(y_true, preds_knn, cfg.model.num_classes)
 
         logger.info(f"[Spatial–Spectral] F1={metrics_spatial['f1_macro']:.3f}, OA={metrics_spatial['oa']:.3f}")
+        logger.info(f"[Metrics] Sensitivity mean={metrics_spatial['sensitivity_mean']:.3f}, "
+            f"Specificity mean={metrics_spatial['specificity_mean']:.3f}")
+        logger.info(f"[Metrics] Sensitivity per classe: "
+                    f"{[round(v,3) for v in [metrics_spatial[k] for k in metrics_spatial if k.startswith('sens_class_')]]}")
+        logger.info(f"[Metrics] Specificity per classe: "
+                    f"{[round(v,3) for v in [metrics_spatial[k] for k in metrics_spatial if k.startswith('spec_class_')]]}")
 
         # =======================================================
         # 3. Majority Voting (HKM + voting)
@@ -207,6 +219,12 @@ def main(cfg_path):
 
         metrics_mv = compute_all_metrics(y_true, preds_mv, cfg.model.num_classes)
         logger.info(f"[Majority Voting] F1={metrics_mv['f1_macro']:.3f}, OA={metrics_mv['oa']:.3f}")
+        logger.info(f"[Metrics] Sensitivity mean={metrics_mv['sensitivity_mean']:.3f}, "
+            f"Specificity mean={metrics_mv['specificity_mean']:.3f}")
+        logger.info(f"[Metrics] Sensitivity per classe: "
+                    f"{[round(v,3) for v in [metrics_mv[k] for k in metrics_mv if k.startswith('sens_class_')]]}")
+        logger.info(f"[Metrics] Specificity per classe: "
+                    f"{[round(v,3) for v in [metrics_mv[k] for k in metrics_mv if k.startswith('spec_class_')]]}")
 
         # --- Save results for this fold ---
         all_results.append({
