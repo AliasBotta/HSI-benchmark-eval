@@ -151,6 +151,7 @@ def main(cfg_path):
         # Attempt to load cube from processed data
         patient_id = str(pids[0])
         cube_path = Path(cfg.data.processed_dir) / patient_id / "preprocessed_cube.npy"
+        logger.info(f"[DEBUG] patient_id example: {patient_id}")
 
         if cube_path.exists():
             cube = np.load(cube_path)
