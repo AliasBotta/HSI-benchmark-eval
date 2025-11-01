@@ -46,8 +46,13 @@ def apply_knn_filter(prob_map, cube, cfg):
     for c in range(n_classes):
         smoothed_full[:, c] = np.mean(prob_map_full[indices, c], axis=1)
 
-    # --- crop back to labeled pixels *after* smoothing ---
-    smoothed = smoothed_full[:n_probs]
+    # --- crop back to labeled pixels only ---
+    if n_probs < n_pixels:
+        smoothed = smoothed_full[:n_probs]
+        print(f"[Spatial Filtering] Cropped smoothed map ({n_pixels} → {n_probs})")
+    else:
+        smoothed = smoothed_full
 
     print("[Spatial Filtering] ✅ KNN smoothing complete.")
     return smoothed
+
