@@ -22,7 +22,7 @@ def apply_knn_filter(prob_map, cube, cfg):
     pca_img = pca.fit_transform(cube_flat).reshape(H, W)
 
     # --- Build guided coordinates ---
-    lam = cfg.spatial_spectral.knn_filter.lambda
+    lam = getattr(cfg.spatial_spectral.knn_filter, "lambda", 1)
     coords = np.stack(np.meshgrid(np.arange(H), np.arange(W), indexing='ij'), -1).reshape(-1, 2)
     features = np.concatenate([pca_img.flatten()[:, None], lam * coords], axis=1)
 
