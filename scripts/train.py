@@ -149,9 +149,17 @@ def main(cfg_path):
         # 2. Spatial–Spectral (KNN filter)
         # =======================================================
         # Attempt to load cube from processed data
-        patient_id = str(pids[0])
-        cube_path = Path(cfg.data.processed_dir) / patient_id / "preprocessed_cube.npy"
-        logger.info(f"[DEBUG] patient_id example: {patient_id}")
+        # Find a matching folder in processed_dir (like "004-02" for "004")
+        patient_root = str(pids[0]).split('-')[0]
+        processed_root = Path(cfg.data.processed_dir)
+        matches = sorted([d for d in processed_root.iterdir() if d.name.startswith(patient_root)])
+        if len(matches) > 0:
+            cube_path = matches[0] / "preprocessed_cube.npy"
+            logger.info(f"[Spatial–Spectral] Loaded cube for patient {patient_root}: {cube_path}")
+        else:
+            cube_path = None
+            logger.warning(f"[Spatial–Spectral] ⚠ No matching cube found for patient {patient_root}")
+
 
         if cube_path.exists():
             cube = np.load(cube_path)
