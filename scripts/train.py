@@ -149,8 +149,8 @@ def main(cfg_path):
         # 2. Spatial–Spectral (KNN filter)
         # =======================================================
         # Attempt to load cube from processed data
-        patient_id = str(pids[0]).split('-')[0]
-        cube_path = Path(cfg.data.processed_dir) / f"{patient_id}-01" / "preprocessed_cube.npy"
+        patient_id = str(pids[0])
+        cube_path = Path(cfg.data.processed_dir) / patient_id / "preprocessed_cube.npy"
 
         if cube_path.exists():
             cube = np.load(cube_path)
