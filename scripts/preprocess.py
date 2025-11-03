@@ -92,7 +92,7 @@ def main():
             normalization=NORMALIZATION,
             downsampling_enabled=DOWNSAMPLING_ENABLED,
             final_channels=FINAL_CHANNELS,
-            step_nm=STEP_NM,
+            #step_nm=STEP_NM,
         )
 
         # --- Save results ---
