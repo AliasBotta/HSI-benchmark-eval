@@ -49,7 +49,7 @@ def load_gt_map(base_path):
     gt = spectral.envi.open(hdr_path, str(base_path))
     gt_map = np.asarray(gt.load()).astype(np.int32)
 
-    # Defensive fix: replace NaNs and negatives with 0
+    # replace NaNs and negatives with 0
     gt_map = np.nan_to_num(gt_map, nan=0).clip(min=0)
     return gt_map
 

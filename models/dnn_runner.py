@@ -11,8 +11,30 @@ import torch
 import torch.nn as nn
 from torch.utils.data import TensorDataset, DataLoader
 from . import BaseRunner
-from .dnn_1d import DNN1D
 
+class DNN1D(nn.Module):
+    def __init__(self, input_dim=128, num_classes=4, hidden_dims=(256, 128), dropout=0.3):
+        super().__init__()
+        layers = []
+        in_dim = input_dim
+
+        # Hidden layers
+        for h in hidden_dims:
+            layers += [
+                nn.Linear(in_dim, h),
+                nn.BatchNorm1d(h),
+                nn.ReLU(inplace=True),
+                nn.Dropout(dropout),
+            ]
+            in_dim = h
+
+        # Output layer
+        layers += [nn.Linear(in_dim, num_classes)]
+
+        self.net = nn.Sequential(*layers)
+
+    def forward(self, x):
+        return self.net(x)
 
 class DNNRunner(BaseRunner):
     """
@@ -51,6 +73,7 @@ class DNNRunner(BaseRunner):
                          hidden_dims=hidden_dims).to(self.device)
         self.softmax = nn.Softmax(dim=1)
 
+    
     # ------------------------------------------------------------
     # Training
     # ------------------------------------------------------------
