@@ -6,29 +6,36 @@ from scipy.sparse.linalg import svds
 def _binary_split_indices(X_cols: np.ndarray, random_state: int = 0):
     """
     Binary split of a set of columns using rank-2 projection + k-means(2).
-    X_cols: (bands, n_points) subset of the cube as feature matrix.
-    Returns two index masks (relative to the local subset).
+    X_cols: (bands, n_points)
     """
-    # Rank-2 projection (SVD as fast proxy for rank-2 NMF split)
-    # NOTE: we use |U| to mimic non-negativity's effect on directionality.
-    U, S, Vt = svds(X_cols, k=min(2, min(X_cols.shape)-1))
-    Z = (U @ np.diag(S))  # (bands, 2)
-    # Project points
-    P = X_cols.T @ Z      # (n_points, 2)
-    # KMeans with 2 clusters
+    bands, npts = X_cols.shape
+    if min(bands, npts) < 2:
+        # Not enough rank/samples to do a meaningful SVD split → random balanced split
+        idx = np.arange(npts)
+        rng = np.random.default_rng(random_state)
+        rng.shuffle(idx)
+        mid = max(1, len(idx)//2)
+        mask0 = np.zeros(len(idx), bool); mask0[idx[:mid]] = True
+        return mask0, ~mask0
+
+    r = 2 if min(bands, npts) >= 3 else 1
+    U, S, Vt = svds(X_cols, k=r)
+    Z = (U @ np.diag(S))              # (bands, r)
+    P = X_cols.T @ Z                  # (n_points, r)
+
     km = KMeans(n_clusters=2, n_init=5, random_state=random_state)
     labels = km.fit_predict(P)
     mask0 = (labels == 0)
     mask1 = ~mask0
-    # Ensure non-empty splits
     if mask0.sum() == 0 or mask1.sum() == 0:
-        # Fallback: random balanced split
-        idx = np.arange(P.shape[0])
-        np.random.default_rng(random_state).shuffle(idx)
-        mid = len(idx)//2
+        idx = np.arange(npts)
+        rng = np.random.default_rng(random_state)
+        rng.shuffle(idx)
+        mid = max(1, len(idx)//2)
         mask0 = np.zeros(len(idx), bool); mask0[idx[:mid]] = True
         mask1 = ~mask0
     return mask0, mask1
+
 
 def h2nmf_segmentation(cube: np.ndarray, target_clusters: int = 24, random_state: int = 0):
     """
