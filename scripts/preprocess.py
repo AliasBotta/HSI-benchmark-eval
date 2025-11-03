@@ -1,21 +1,49 @@
 """
 preprocess.py
 -------------
-Script to preprocess all HSI dataset instances according to config.
+Preprocess all HSI dataset instances according to the benchmark pipeline.
+
 Usage:
-    python scripts/preprocess.py --config configs/default.yaml
+    python preprocess.py
 """
 
-import os
-import argparse
 from pathlib import Path
 import numpy as np
-from omegaconf import OmegaConf
 
 from utils.data_loading import list_all_instances, load_dataset_instance
 from utils.preprocessing import preprocess_hsi_cube
 from utils.helpers import ensure_dir, setup_logger
 
+
+# ============================================================
+# Preprocessing Parameters (replacing YAML config)
+# ============================================================
+
+# Input/output directories
+ROOT_DIR = Path("data/hsi_dataset")       # raw dataset root
+PROCESSED_DIR = Path("data/processed")    # preprocessed output
+
+# Dataset file naming conventions
+RAW_CUBE_NAME = "raw"
+WHITE_REF_NAME = "whiteReference"
+DARK_REF_NAME = "darkReference"
+GT_MAP_NAME = "gtMap"
+
+# Preprocessing parameters
+REMOVE_BANDS_START = 56
+REMOVE_BANDS_END = 126
+SMOOTHING_ENABLED = True
+SMOOTHING_WINDOW = 5
+ABSORBANCE_CONVERSION = True
+NORMALIZATION = "minmax"
+DOWNSAMPLING_ENABLED = True
+FINAL_CHANNELS = 128
+STEP_NM = 3.61
+
+
+# ============================================================
+# Save Utilities
+# ============================================================
 
 def save_preprocessed_cube(out_dir, cube, gt=None):
     """Save the preprocessed cube (and optionally GT) as NumPy .npy files."""
@@ -23,41 +51,62 @@ def save_preprocessed_cube(out_dir, cube, gt=None):
     np.save(Path(out_dir) / "preprocessed_cube.npy", cube)
     if gt is not None:
         np.save(Path(out_dir) / "gtMap.npy", gt)
+    print(f"[INFO] Saved preprocessed cube → {out_dir}")
 
 
-def main(cfg_path):
-    cfg = OmegaConf.load(cfg_path)
+# ============================================================
+# Main Preprocessing Routine
+# ============================================================
+
+def main():
     logger = setup_logger("outputs/logs", name="preprocess")
+    ensure_dir(PROCESSED_DIR)
 
-    root_dir = Path(cfg.data.root_dir)
-    processed_dir = Path(cfg.data.processed_dir)
-    ensure_dir(processed_dir)
-
-    instances = list_all_instances(root_dir)
+    # --- List all dataset instances ---
+    instances = list_all_instances(ROOT_DIR)
     logger.info(f"Found {len(instances)} dataset instances.")
 
     for instance in instances:
         logger.info(f"Processing {instance.name}...")
-        data = load_dataset_instance(instance, cfg)
+        data = load_dataset_instance(
+            instance,
+            raw_name=RAW_CUBE_NAME,
+            white_ref_name=WHITE_REF_NAME,
+            dark_ref_name=DARK_REF_NAME,
+            gt_map_name=GT_MAP_NAME,
+        )
+
         if data is None:
             logger.warning(f"Skipping {instance}")
             continue
 
+        # --- Preprocess cube ---
         cube = preprocess_hsi_cube(
-            data["raw"], data["white_ref"], data["dark_ref"], cfg
+            data["raw"],
+            data["white_ref"],
+            data["dark_ref"],
+            remove_bands=(REMOVE_BANDS_START, REMOVE_BANDS_END),
+            smoothing_enabled=SMOOTHING_ENABLED,
+            smoothing_window=SMOOTHING_WINDOW,
+            absorbance_conversion=ABSORBANCE_CONVERSION,
+            normalization=NORMALIZATION,
+            downsampling_enabled=DOWNSAMPLING_ENABLED,
+            final_channels=FINAL_CHANNELS,
+            step_nm=STEP_NM,
         )
 
-        out_dir = processed_dir / instance.name
+        # --- Save results ---
+        out_dir = PROCESSED_DIR / instance.name
         save_preprocessed_cube(out_dir, cube, data["gt"])
 
         logger.info(f"Saved preprocessed cube to {out_dir}")
 
-    logger.info("Preprocessing completed for all instances.")
+    logger.info("✅ Preprocessing completed for all instances.")
 
+
+# ============================================================
+# Entry Point
+# ============================================================
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--config", type=str, required=True, help="Path to config YAML")
-    args = parser.parse_args()
-    main(args.config)
-
+    main()

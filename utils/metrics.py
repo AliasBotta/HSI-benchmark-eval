@@ -12,41 +12,72 @@ import numpy as np
 from sklearn.metrics import f1_score, accuracy_score, confusion_matrix
 
 
+# ============================================================
+# Basic Metrics
+# ============================================================
+
 def overall_accuracy(y_true, y_pred):
     """Compute overall accuracy (OA)."""
     return np.mean(y_true == y_pred)
 
 
-def compute_all_metrics(y_true, y_pred, num_classes):
-    """Compute global and per-class metrics consistent with HSI-benchmark."""
-    metrics = {}
+# ============================================================
+# Full Benchmark Metrics
+# ============================================================
 
-    # --- Macro F1 and OA ---
-    metrics["f1_macro"] = f1_score(y_true, y_pred, average="macro")
+def compute_all_metrics(y_true, y_pred, num_classes, labels=None):
+    """
+    Compute global and per-class metrics consistent with HSI-benchmark.
+
+    Parameters
+    ----------
+    y_true : np.ndarray
+        Ground-truth integer labels.
+    y_pred : np.ndarray
+        Predicted integer labels.
+    num_classes : int
+        Total number of classes (e.g., 4 for TT, NT, BV, BG).
+    labels : list[int], optional
+        Specific labels to include in the evaluation
+        (e.g., [0,1,2] to exclude background class).
+
+    Returns
+    -------
+    metrics : dict
+        Dictionary containing macro F1, OA, per-class sensitivity/specificity,
+        and their means.
+    """
+    metrics = {}
+    if labels is None:
+        labels = list(range(num_classes))
+    labels = list(labels)
+
+    # --- Macro F1 on the eval labels only ---
+    metrics["f1_macro"] = f1_score(y_true, y_pred, labels=labels, average="macro", zero_division=0)
     metrics["oa"] = accuracy_score(y_true, y_pred)
 
-    # --- Confusion matrix ---
-    cm = confusion_matrix(y_true, y_pred, labels=np.arange(num_classes))
+    # --- Per-class metrics (mask-based, robust to invalid preds) ---
+    sensitivity = []
+    specificity = []
 
-    # --- Per-class metrics ---
-    sensitivity = np.zeros(num_classes)
-    specificity = np.zeros(num_classes)
+    y_true = np.asarray(y_true)
+    y_pred = np.asarray(y_pred)
 
-    for i in range(num_classes):
-        TP = cm[i, i]
-        FN = np.sum(cm[i, :]) - TP
-        FP = np.sum(cm[:, i]) - TP
-        TN = np.sum(cm) - (TP + FN + FP)
+    for c in labels:
+        tpos = np.sum((y_true == c) & (y_pred == c))
+        fneg = np.sum((y_true == c) & (y_pred != c))
+        fpos = np.sum((y_true != c) & (y_pred == c))
+        tneg = np.sum((y_true != c) & (y_pred != c))
 
-        sensitivity[i] = TP / (TP + FN + 1e-8)  # True Positive Rate
-        specificity[i] = TN / (TN + FP + 1e-8)  # True Negative Rate
+        sens = tpos / (tpos + fneg + 1e-8)
+        spec = tneg / (tneg + fpos + 1e-8)
 
-        # Save per-class results
-        metrics[f"sens_class_{i}"] = sensitivity[i]
-        metrics[f"spec_class_{i}"] = specificity[i]
+        metrics[f"sens_class_{c}"] = sens
+        metrics[f"spec_class_{c}"] = spec
+        sensitivity.append(sens)
+        specificity.append(spec)
 
-    # --- Mean values (global sensitivity/specificity) ---
-    metrics["sensitivity_mean"] = np.mean(sensitivity)
-    metrics["specificity_mean"] = np.mean(specificity)
-
+    metrics["sensitivity_mean"] = float(np.mean(sensitivity)) if sensitivity else 0.0
+    metrics["specificity_mean"] = float(np.mean(specificity)) if specificity else 0.0
     return metrics
+

@@ -7,32 +7,52 @@ into flat pixel-wise arrays for training and evaluation.
 
 from pathlib import Path
 import numpy as np
-from sklearn.model_selection import train_test_split
-from sklearn.model_selection import KFold
 
-def make_kfold_splits(X, y, patient_ids, cfg):
+
+# ============================================================
+# K-Fold Split (config-free)
+# ============================================================
+
+def make_kfold_splits(
+    X,
+    y,
+    patient_ids,
+    folds=5,
+    split=(0.6, 0.2, 0.2),
+    random_seed=42
+):
     """
-    Perform k-fold cross-validation at patient level according to config split ratios.
+    Perform k-fold cross-validation at patient level.
 
-    cfg.partition.split = [train_ratio, val_ratio, test_ratio]
-    ensures approximately that each fold uses the specified proportions.
+    Parameters
+    ----------
+    X, y : np.ndarray
+        Pixel-wise spectral features and labels.
+    patient_ids : np.ndarray
+        Array mapping each sample to a patient ID.
+    folds : int
+        Number of folds (default 5).
+    split : tuple
+        Ratios for (train, val, test), e.g. (0.6, 0.2, 0.2).
+    random_seed : int
+        Random seed for reproducibility.
     """
 
     unique_pids = np.unique(patient_ids)
-    rng = np.random.default_rng(cfg.partition.random_seed)
+    rng = np.random.default_rng(random_seed)
     rng.shuffle(unique_pids)
 
     n_total = len(unique_pids)
-    n_train = int(cfg.partition.split[0] * n_total)
-    n_val   = int(cfg.partition.split[1] * n_total)
-    n_test  = n_total - n_train - n_val
+    n_train = int(split[0] * n_total)
+    n_val   = int(split[1] * n_total)
+    n_test  = max(1, n_total - n_train - n_val)
 
     # 5 folds => rotate test set position across splits
     fold_size = max(1, n_test)
-    folds = []
-    for fold_idx in range(cfg.partition.folds):
-        start = fold_idx * fold_size % n_total
-        end   = (start + fold_size) % n_total
+
+    for fold_idx in range(folds):
+        start = (fold_idx * fold_size) % n_total
+        end = (start + fold_size) % n_total
 
         if end > start:
             test_pids = unique_pids[start:end]
@@ -41,9 +61,8 @@ def make_kfold_splits(X, y, patient_ids, cfg):
             test_pids = np.concatenate([unique_pids[start:], unique_pids[:end]])
             remain_pids = np.setdiff1d(unique_pids, test_pids)
 
-        # Within remaining, take val and train respecting ratios
         n_remain = len(remain_pids)
-        n_val_local = int(cfg.partition.split[1] / (cfg.partition.split[0] + cfg.partition.split[1]) * n_remain)
+        n_val_local = int(split[1] / (split[0] + split[1]) * n_remain)
         rng.shuffle(remain_pids)
         val_pids = remain_pids[:n_val_local]
         train_pids = remain_pids[n_val_local:]
@@ -53,6 +72,11 @@ def make_kfold_splits(X, y, patient_ids, cfg):
             return X[mask], y[mask]
 
         yield fold_idx, select(train_pids), select(val_pids), select(test_pids)
+
+
+# ============================================================
+# Patch Extraction
+# ============================================================
 
 def extract_patches(X_cube, gt, patch_size=5):
     """
@@ -69,34 +93,46 @@ def extract_patches(X_cube, gt, patch_size=5):
     X_patches, y = [], []
 
     for (yy, xx) in coords:
-        patch = X_pad[:, yy:yy+patch_size, xx:xx+patch_size]
+        patch = X_pad[:, yy:yy + patch_size, xx:xx + patch_size]
         X_patches.append(patch)
         y.append(gt[yy, xx])
 
     return np.stack(X_patches), np.array(y)
 
 
+# ============================================================
+# Load Preprocessed Data
+# ============================================================
 
-def load_all_processed(data_dir, cfg=None):
+def load_all_processed(
+    data_dir,
+    spatial_enabled=False,
+    patch_size=5
+):
     """
     Load all preprocessed cubes and GT maps from data/processed/.
-    If cfg.data.spatial_enabled=True, extracts (spectral, spatial) patches.
 
-    Returns:
-        X: np.ndarray (N_pixels, bands) or (N_patches, bands, H, W)
-        y: np.ndarray (N,)
-        patient_ids: np.ndarray (N,)
+    Parameters
+    ----------
+    data_dir : str or Path
+        Directory containing preprocessed instances.
+    spatial_enabled : bool
+        If True, extracts (spectral, spatial) patches.
+    patch_size : int
+        Size of spatial patches (default 5).
+
+    Returns
+    -------
+    X : np.ndarray
+        (N_pixels, bands) or (N_patches, bands, H, W)
+    y : np.ndarray
+        (N,)
+    patient_ids : np.ndarray
+        (N,)
     """
-    from utils.dataset import extract_patches  # ensure helper available
     X_list, y_list, pid_list = [], [], []
     root = Path(data_dir)
     instances = sorted([p for p in root.iterdir() if p.is_dir()])
-
-    spatial_mode = False
-    patch_size = 5
-    if cfg is not None and getattr(cfg.data, "spatial_enabled", False):
-        spatial_mode = True
-        patch_size = getattr(cfg.data, "patch_size", 5)
 
     for inst in instances:
         cube_path = inst / "preprocessed_cube.npy"
@@ -112,7 +148,7 @@ def load_all_processed(data_dir, cfg=None):
 
         pid = inst.name.split('-')[0]
 
-        if spatial_mode:
+        if spatial_enabled:
             # --- Spatial–Spectral patch extraction ---
             X_patches, y_patches = extract_patches(cube, gt, patch_size)
             X_list.append(X_patches)
@@ -133,23 +169,32 @@ def load_all_processed(data_dir, cfg=None):
     return X, y, np.array(pid_list)
 
 
+# ============================================================
+# Simple Patient Split (config-free)
+# ============================================================
 
-def split_by_patient(X, y, patient_ids, cfg):
+def split_by_patient(
+    X,
+    y,
+    patient_ids,
+    split=(0.6, 0.2, 0.2),
+    random_seed=42
+):
     """
     Split data into train/val/test ensuring no patient overlap.
     Uses stratified split on patient-level if possible.
     """
     unique_pids = np.unique(patient_ids)
-    rng = np.random.default_rng(cfg.partition.random_seed)
+    rng = np.random.default_rng(random_seed)
     rng.shuffle(unique_pids)
 
     n_total = len(unique_pids)
-    n_train = int(cfg.partition.split[0] * n_total)
-    n_val = int(cfg.partition.split[1] * n_total)
+    n_train = int(split[0] * n_total)
+    n_val = int(split[1] * n_total)
 
     train_pids = unique_pids[:n_train]
-    val_pids = unique_pids[n_train:n_train+n_val]
-    test_pids = unique_pids[n_train+n_val:]
+    val_pids = unique_pids[n_train:n_train + n_val]
+    test_pids = unique_pids[n_train + n_val:]
 
     def select(pids):
         mask = np.isin(patient_ids, pids)
@@ -163,4 +208,3 @@ def split_by_patient(X, y, patient_ids, cfg):
     print(f"Samples: train={len(y_train)}, val={len(y_val)}, test={len(y_test)}")
 
     return (X_train, y_train), (X_val, y_val), (X_test, y_test)
-

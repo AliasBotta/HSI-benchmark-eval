@@ -27,8 +27,8 @@ def calibrate_hsi(raw, white, dark):
 
 def smooth_spectral(data, window_size=5):
     """
-    Apply a moving average filter along spectral dimension.
-    Reduces sensor noise between adjacent wavelengths.
+    Apply a moving average filter along the spectral dimension
+    to remove spikes in the signal.
     """
     if window_size < 2:
         return data
@@ -53,7 +53,7 @@ def remove_noisy_channels(data, start, end):
 # Spectral Processing
 # ============================================================
 
-def downsample_spectrum(data, step=3.61, final_channels=128):
+def downsample_spectrum(data, final_channels=128):
     """
     Uniformly sample the spectral dimension to reduce band count.
     Approximates 3.61 nm spectral step reduction.
@@ -66,6 +66,7 @@ def downsample_spectrum(data, step=3.61, final_channels=128):
 
 
 def normalize_minmax(data):
+    """Normalize cube values to [0, 1]."""
     dmin = data.min()
     dmax = data.max()
     return (data - dmin) / (dmax - dmin + 1e-8)
@@ -84,47 +85,49 @@ def convert_to_absorbance(reflectance):
 # Full Preprocessing Chain
 # ============================================================
 
-def preprocess_hsi_cube(raw, white, dark, cfg):
+def preprocess_hsi_cube(
+    raw,
+    white,
+    dark,
+    remove_bands=(56, 126),
+    smoothing_enabled=True,
+    smoothing_window=5,
+    absorbance_conversion=True,
+    normalization="minmax",
+    downsampling_enabled=True,
+    final_channels=128,
+):
     """
     Execute the full preprocessing pipeline in the correct order:
       1. Radiometric calibration
-      2. (Optional) Smoothing
+      2. Smoothing (optional)
       3. Remove noisy bands
-      4. (Optional) Convert to absorbance
-      5. (Optional) Spectral downsampling
-      6. (Optional) Normalization
+      4. Convert to absorbance (optional)
+      5. Spectral downsampling (optional)
+      6. Normalization
     Returns:
         cube: np.ndarray of shape (bands, H, W)
     """
-    # --- 1. Calibration ---
+    # 1. Radiometric calibration
     cube = calibrate_hsi(raw, white, dark)
 
-    # --- 2. Smoothing ---
-    if getattr(cfg.data.smoothing, "enabled", False):
-        cube = smooth_spectral(cube, cfg.data.smoothing.window)
+    # 2. Smoothing
+    if smoothing_enabled:
+        cube = smooth_spectral(cube, window_size=smoothing_window)
 
-    # --- 3. Remove noisy channels ---
-    cube = remove_noisy_channels(
-        cube,
-        cfg.data.remove_bands.start,
-        cfg.data.remove_bands.end
-    )
+    # 3. Remove noisy bands
+    cube = remove_noisy_channels(cube, *remove_bands)
 
-    # --- 4. Convert to absorbance (optional) ---
-    if getattr(cfg.data, "absorbance_conversion", False):
+    # 4. Absorbance conversion
+    if absorbance_conversion:
         cube = convert_to_absorbance(cube)
 
-    # --- 5. Downsampling (optional) ---
-    if getattr(cfg.data.downsampling, "enabled", False):
-        cube = downsample_spectrum(
-            cube,
-            cfg.data.downsampling.step_nm,
-            cfg.data.downsampling.final_channels
-        )
+    # 5. Spectral downsampling
+    if downsampling_enabled:
+        cube = downsample_spectrum(cube, final_channels=final_channels)
 
-    # --- 6. Normalization ---
-    norm_method = getattr(cfg.data, "normalization", "minmax")
-    if norm_method == "minmax":
+    # 6. Normalization
+    if normalization == "minmax":
         cube = normalize_minmax(cube)
 
     return cube

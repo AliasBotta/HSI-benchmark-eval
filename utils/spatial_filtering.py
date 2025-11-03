@@ -1,42 +1,67 @@
+"""
+spatial_filtering.py
+--------------------
+Implements the spatial–spectral KNN smoothing step guided by PCA(1),
+as described in the HSI-benchmark paper.
+"""
+
 import numpy as np
-from sklearn.decomposition import PCA
 from sklearn.neighbors import NearestNeighbors
 from scipy.ndimage import uniform_filter1d
 
 
-def apply_knn_filter(prob_map, cube, cfg):
+def apply_knn_filter(prob_map, pc1=None, cube=None, K=40, lambda_=1.0,
+                     window_size=14, distance="euclidean"):
     """
     Apply KNN smoothing to model probability maps guided by PCA(1) image.
-    Faithful to HSI-benchmark (2D spatial–spectral smoothing guided by PC1).
-    Args:
-        prob_map: (N_labeled, num_classes)
-        cube: (bands, H, W)
-        cfg: config with spatial_spectral.knn_filter params
-    Returns:
-        smoothed_prob_map: same shape as prob_map
+    Faithful to the HSI-benchmark (2D spatial–spectral smoothing guided by PC1).
+
+    Parameters
+    ----------
+    prob_map : np.ndarray
+        (N_pixels, num_classes) probability or score map (flattened).
+    pc1 : np.ndarray, optional
+        (H, W) precomputed first principal component image (preferred, raw scale).
+    cube : np.ndarray, optional
+        (bands, H, W) preprocessed HSI cube. Used only if pc1 is not provided.
+    K : int
+        Number of neighbors for spatial KNN.
+    lambda_ : float
+        Spatial scaling factor for coordinates.
+    window_size : int
+        Window size for the vertical sliding window (14 by default).
+    distance : str
+        Distance metric for KNN ('euclidean' recommended).
+
+    Returns
+    -------
+    smoothed_prob_map : np.ndarray
+        Same shape as prob_map.
     """
     print("[Spatial Filtering] Applying KNN filter guided by PCA(1)...")
 
-    # --- fallback: 1D smoothing if no cube ---
-    if cube is None:
-        print("[Spatial Filtering] ⚠ No cube provided — applying 1D fallback smoothing.")
-        return uniform_filter1d(prob_map, size=3, axis=0)
+    # --- fallback: 1D smoothing if no cube/pc1 provided ---
+    if cube is None and pc1 is None:
+        print("[Spatial Filtering] ⚠ No cube or PC1 provided — applying 1D fallback smoothing.")
+        return uniform_filter1d(prob_map, size=window_size, axis=0)
 
-    bands, H, W = cube.shape
+    # --- compute PC1 if not provided ---
+    if pc1 is None:
+        from sklearn.decomposition import PCA
+        bands, H, W = cube.shape
+        pca = PCA(n_components=1)
+        pc1 = pca.fit_transform(cube.reshape(bands, -1).T).reshape(H, W)
+    else:
+        H, W = pc1.shape
+
     n_pixels = H * W
     n_classes = prob_map.shape[1]
     n_probs = prob_map.shape[0]
 
-    # --- PCA(1) image as guide ---
-    pca = PCA(n_components=1)
-    pca_img = pca.fit_transform(cube.reshape(bands, -1).T).reshape(H, W)
-
-    # --- build feature space (PC1 + spatial coords) ---
-    lam = getattr(cfg.spatial_spectral.knn_filter, "lambda", 1.0)
-    K = getattr(cfg.spatial_spectral.knn_filter, "K", 25)
-
+    # --- feature space (PC1 + spatial coordinates) ---
     yy, xx = np.mgrid[0:H, 0:W]
-    features = np.stack([pca_img.ravel(), lam * yy.ravel(), lam * xx.ravel()], axis=1)
+    # Use raw PC1 without normalization (as in MATLAB reference)
+    features = np.stack([pc1.ravel(), lambda_ * yy.ravel(), lambda_ * xx.ravel()], axis=1)
 
     # --- adjust prob_map size to match cube (pad or crop) ---
     if n_probs < n_pixels:
@@ -49,13 +74,31 @@ def apply_knn_filter(prob_map, cube, cfg):
     else:
         prob_map_full = prob_map
 
-    # --- fit KNN and smooth ---
-    nn = NearestNeighbors(n_neighbors=K, metric="euclidean").fit(features)
-    _, indices = nn.kneighbors(features)
-
+    # --- windowed KNN smoothing along image rows (MATLAB-like) ---
     smoothed_full = np.zeros_like(prob_map_full)
-    for c in range(n_classes):
-        smoothed_full[:, c] = np.mean(prob_map_full[indices, c], axis=1)
+    row_idx = yy.ravel()
+    half = max(1, int(window_size) // 2)
+
+    for r in range(H):
+        # Context rows for this window
+        lo = max(0, r - half)
+        hi = min(H - 1, r + half)
+        ctx_mask = (row_idx >= lo) & (row_idx <= hi)
+        qry_mask = (row_idx == r)
+
+        ctx_idx = np.flatnonzero(ctx_mask)
+        qry_idx = np.flatnonzero(qry_mask)
+        if ctx_idx.size == 0 or qry_idx.size == 0:
+            continue
+
+        # Fit KNN only within the local window
+        k_here = min(K, ctx_idx.size)
+        nn = NearestNeighbors(n_neighbors=k_here, metric=distance).fit(features[ctx_idx])
+        neigh_local = nn.kneighbors(features[qry_idx], return_distance=False)  # (n_qry, k_here)
+        neigh_global = ctx_idx[neigh_local]  # map back to global indices
+
+        # Average neighbor probabilities (unweighted mean)
+        smoothed_full[qry_idx] = prob_map_full[neigh_global].mean(axis=1)
 
     # --- crop back to labeled pixels only ---
     if n_probs < n_pixels:

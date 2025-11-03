@@ -54,14 +54,22 @@ def load_gt_map(base_path):
     return gt_map
 
 
-def load_dataset_instance(instance_dir, cfg):
+def load_dataset_instance(instance_dir,
+                          raw_name="raw",
+                          white_ref_name="whiteReference",
+                          dark_ref_name="darkReference",
+                          gt_map_name="gtMap"):
     """
     Load all components of a single dataset instance folder:
       - raw hyperspectral cube
       - white reference
       - dark reference
       - ground truth map
+
     Returns a dict with arrays.
+
+    NOTE: Default names correspond to the original dataset.
+          You can override them in the call if needed.
     """
     d = Path(instance_dir)
     data = {}
@@ -75,10 +83,10 @@ def load_dataset_instance(instance_dir, cfg):
         raise FileNotFoundError(f"Missing file for {base_name} in {d}")
 
     try:
-        data["raw"] = safe_load_image(cfg.data.raw_cube_name)
-        data["white_ref"] = safe_load_image(cfg.data.white_ref_name)
-        data["dark_ref"] = safe_load_image(cfg.data.dark_ref_name)
-        data["gt"] = load_gt_map(d / cfg.data.gt_map_name)
+        data["raw"] = safe_load_image(raw_name)
+        data["white_ref"] = safe_load_image(white_ref_name)
+        data["dark_ref"] = safe_load_image(dark_ref_name)
+        data["gt"] = load_gt_map(d / gt_map_name)
     except Exception as e:
         print(f"[WARNING] Could not load {instance_dir}: {e}")
         return None
@@ -89,7 +97,6 @@ def load_dataset_instance(instance_dir, cfg):
               f"raw {data['raw'].shape[1:]} vs gt {data['gt'].shape}")
 
     return data
-
 
 
 # ============================================================
@@ -103,7 +110,9 @@ def list_all_instances(root_dir):
         FirstCampaign/004-02/
         SecondCampaign/037-01/
         ThirdCampaign/050-01/
-    Returns a list of Paths, each pointing to the folder containing raw/whiteReference/darkReference/gtMap.
+
+    Returns a list of Paths, each pointing to the folder containing
+    raw/whiteReference/darkReference/gtMap.
     """
     instances = []
     root_dir = Path(root_dir)
@@ -116,7 +125,6 @@ def list_all_instances(root_dir):
             if (instance_dir / "raw.hdr").exists() or (instance_dir / "raw").exists():
                 instances.append(instance_dir)
     return sorted(instances)
-
 
 
 def load_instance_paths(instance_dir):
@@ -156,4 +164,3 @@ def save_numpy_arrays(out_dir, cube, gt_map):
     np.save(out_dir / "gtMap.npy", gt_map)
 
     print(f"[INFO] Saved → {out_dir/'preprocessed_cube.npy'} and gtMap.npy")
-

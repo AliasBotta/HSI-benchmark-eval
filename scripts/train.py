@@ -1,251 +1,254 @@
+# scripts/train.py
 """
-train.py
----------
-Supervised training pipeline for the HSI DNN baseline, extended to include
-the three configurations described in the benchmark paper:
-1. Spectral (pure DNN)
-2. Spatial–Spectral (KNN smoothing)
-3. Majority Voting (HKM + voting)
+Complete pipeline (paper-aligned):
+RAW → Preprocess (already done) → PCA(1) → Supervised(ClassMap, probAllImage)
+→ KNN filter (knn.classMap, knn.mapProb) → HKM + Majority Voting (mv.classMap)
+Evaluations: (1) Spectral, (2) Spatial/KNN, (3) MV.
+
+Modular by model: --model {dnn, svm-l, svm-rbf, knn-e, rf, ebeae, nebeae}
+Each model is implemented in models/<model>.py and must return:
+  - class_map: (H, W)  with labels 0..3 (TT, NT, BV, BG)
+  - prob_all : (H, W, 4) class probabilities (order: [TT, NT, BV, BG])
 """
 
 import argparse
+import os
 from pathlib import Path
 import numpy as np
 import pandas as pd
-import torch
-import torch.nn as nn
-from torch.utils.data import TensorDataset, DataLoader
-from omegaconf import OmegaConf
-import os
 
-from utils.helpers import setup_logger, set_seed, get_device, ensure_dir
-from utils.dataset import load_all_processed, make_kfold_splits
+from sklearn.decomposition import PCA
+
+from utils.helpers import setup_logger, set_seed, ensure_dir
+from utils.data_loading import list_all_instances
 from utils.metrics import compute_all_metrics
-from utils.data_reduction import reduce_training_data
-from models.dnn_1d import DNN1D
 from utils.spatial_filtering import apply_knn_filter
 from utils.postprocessing import majority_voting
+from models import get_runner
 
 
 # ============================================================
-# Evaluation Function
+# GLOBAL PIPELINE PARAMETERS (replacing YAML)
 # ============================================================
 
-def evaluate(model, loader, device, num_classes, return_probs=False):
-    """Run inference and compute metrics (optionally return probabilities)."""
-    model.eval()
-    all_preds, all_labels, all_probs = [], [], []
-    softmax = torch.nn.Softmax(dim=1)
+SEED = 42
+DEVICE = "cuda"
+OUTPUT_DIR = Path("outputs/default")
+PROCESSED_DIR = Path("data/processed")
 
-    with torch.no_grad():
-        for xb, yb in loader:
-            xb = xb.to(device)
-            logits = model(xb)
-            probs = softmax(logits).cpu().numpy()
-            preds = np.argmax(probs, axis=1)
-            all_preds.append(preds)
-            all_labels.append(yb.numpy())
-            all_probs.append(probs)
+# Partition
+N_FOLDS = 5
+SPLIT = (0.6, 0.2, 0.2)  # train, val, test
 
-    y_true = np.concatenate(all_labels)
-    y_pred = np.concatenate(all_preds)
-    y_probs = np.concatenate(all_probs)
+# KNN filter params
+KNN_ENABLED = True
+KNN_K = 40
+KNN_WINDOW = 14
+KNN_LAMBDA = 1
+KNN_DISTANCE = "euclidean"
 
-    metrics = compute_all_metrics(y_true, y_pred, num_classes)
-    if return_probs:
-        return metrics, y_true, y_probs
-    return metrics
+# HKM + Majority Voting
+HKM_CLUSTERS = 24
+
+# Classes
+NUM_CLASSES = 4
+BG_INDEX = 3
 
 
 # ============================================================
-# Main Training Routine
+# Utility functions
 # ============================================================
 
-def main(cfg_path):
-    # --- Load config ---
-    cfg = OmegaConf.load(cfg_path)
-    default_cfg_path = os.path.join("configs", "default.yaml")
-    if os.path.exists(default_cfg_path):
-        base_cfg = OmegaConf.load(default_cfg_path)
-        cfg = OmegaConf.merge(base_cfg, cfg)
+def _list_processed_instances(processed_dir: Path):
+    processed_dir = Path(processed_dir)
+    return sorted([
+        d for d in processed_dir.iterdir()
+        if d.is_dir() and (d / "preprocessed_cube.npy").exists() and (d / "gtMap.npy").exists()
+    ])
 
-    set_seed(cfg.experiment.seed)
-    device = get_device(cfg.experiment.device)
-    logger = setup_logger("outputs/logs", name=cfg.experiment.name)
-    ensure_dir(cfg.experiment.output_dir)
 
-    # --- Load dataset ---
-    X, y, pids = load_all_processed(cfg.data.processed_dir)
-    mask = (y > 0) & (y < 4)
-    X, y, pids = X[mask], y[mask] - 1, pids[mask]
-    logger.info(f"Loaded {len(y)} samples from processed dataset.")
+def _pid_from_name(dirname: str) -> str:
+    """'004-02' -> '004'"""
+    return dirname.split("-")[0]
 
-    # =======================================================
-    # Train once (Spectral DNN), evaluate all 3 configurations
-    # =======================================================
-    all_results = []
 
-    for fold_idx, train_set, val_set, test_set in make_kfold_splits(X, y, pids, cfg):
-        (X_train, y_train), (X_val, y_val), (X_test, y_test) = train_set, val_set, test_set
-        logger.info(f"\n🟩 Fold {fold_idx+1}: train={len(y_train)}, val={len(y_val)}, test={len(y_test)}")
+def _make_patient_folds(instances, n_folds=N_FOLDS, split=SPLIT, random_seed=SEED):
+    """Create patient-level folds (same rotation logic as paper)."""
+    pids = sorted(list({_pid_from_name(d.name) for d in instances}))
+    rng = np.random.default_rng(random_seed)
+    rng.shuffle(pids)
 
-        # --- Data reduction ---
-        if getattr(cfg.reduction, "enabled", False):
-            X_train, y_train = reduce_training_data(X_train, y_train, cfg)
+    n_total = len(pids)
+    n_train = int(split[0] * n_total)
+    n_val = int(split[1] * n_total)
+    n_test = max(1, n_total - n_train - n_val)
 
-        # --- Prepare tensors ---
-        X_train_t = torch.tensor(X_train, dtype=torch.float32)
-        y_train_t = torch.tensor(y_train, dtype=torch.long)
-        X_val_t = torch.tensor(X_val, dtype=torch.float32)
-        y_val_t = torch.tensor(y_val, dtype=torch.long)
-        X_test_t = torch.tensor(X_test, dtype=torch.float32)
-        y_test_t = torch.tensor(y_test, dtype=torch.long)
+    folds = []
+    for k in range(n_folds):
+        start = (k * n_test) % n_total
+        end = start + n_test
+        test_p = pids[start:end]
+        remain = [p for p in pids if p not in test_p]
+        n_val_local = int(split[1] / (split[0] + split[1]) * len(remain))
+        val_p = remain[:n_val_local]
+        train_p = remain[n_val_local:]
+        folds.append((train_p, val_p, test_p))
+    return folds
 
-        train_loader = DataLoader(TensorDataset(X_train_t, y_train_t),
-                                  batch_size=cfg.training.batch_size, shuffle=True)
-        val_loader = DataLoader(TensorDataset(X_val_t, y_val_t),
-                                batch_size=cfg.training.batch_size, shuffle=False)
-        test_loader = DataLoader(TensorDataset(X_test_t, y_test_t),
-                                 batch_size=cfg.training.batch_size, shuffle=False)
-        # --- Define model ---
-        model = DNN1D(cfg.model).to(device)
 
-        # --- Compute class weights (inversamente proporzionali alla frequenza)
-        class_counts = np.bincount(y_train)
-        class_weights = torch.tensor(1.0 / (class_counts + 1e-8), dtype=torch.float32)
-        class_weights = class_weights / class_weights.sum() * len(class_counts)
-        criterion = nn.CrossEntropyLoss(weight=class_weights.to(device))
+def _gather_training_pixels(processed_dir: Path, instances, train_pids):
+    """Flatten all labeled pixels from training patients."""
+    X_list, y_list = [], []
+    for d in instances:
+        pid = _pid_from_name(d.name)
+        if pid not in train_pids:
+            continue
+        cube = np.load(d / "preprocessed_cube.npy")      # (bands,H,W)
+        gt = np.load(d / "gtMap.npy")                    # (H,W)
+        bands, H, W = cube.shape
+        flat = cube.reshape(bands, -1).T                 # (H*W, bands)
+        gt_f = gt.reshape(-1)
+        m = gt_f > 0
+        if m.any():
+            X_list.append(flat[m])
+            y_list.append(gt_f[m] - 1)                   # 0..3 (TT=0, NT=1, BV=2, BG=3)
+    if not X_list:
+        return np.empty((0,)), np.empty((0,), int)
+    return np.concatenate(X_list, axis=0), np.concatenate(y_list, axis=0)
 
-        # --- Optimizer ---
-        optimizer = torch.optim.SGD(
-            model.parameters(),
-            lr=cfg.training.learning_rate,
-            momentum=getattr(cfg.training, "momentum", 0.9)
+
+def _evaluate_map(gt_map, pred_map, bg_index=BG_INDEX):
+    """Compute metrics on labeled pixels (gt>0) excluding BG from evaluation.
+    Predictions that are BG where GT is non-BG are counted as errors."""
+    gt = gt_map.flatten()
+    pr = pred_map.flatten()
+
+    mask_labeled = gt > 0
+    gt = gt[mask_labeled] - 1
+    pr = pr[mask_labeled]
+
+    # Drop BG from GT, but keep predictions (BG pred = error)
+    keep = gt != bg_index
+    gt = gt[keep]              # values in {0,1,2}
+    pr = pr[keep]              # values in {0,1,2,3}
+
+    # Cap predictions to valid evaluation labels (avoid index issues)
+    pr_eval = np.where(pr > 2, -1, pr)
+    return compute_all_metrics(gt, pr_eval, num_classes=3, labels=[0, 1, 2])
+
+
+# ============================================================
+# Main Pipeline
+# ============================================================
+
+def main(model_name: str):
+    set_seed(SEED)
+    logger = setup_logger("outputs/logs", name=f"train_{model_name}")
+    ensure_dir(OUTPUT_DIR)
+
+    processed_dir = PROCESSED_DIR
+    instances = _list_processed_instances(processed_dir)
+    if not instances:
+        raise FileNotFoundError(
+            "No preprocessed instances found in data/processed. Run preprocess.py first."
         )
 
+    folds = _make_patient_folds(instances)
+    logger.info(f"Found {len(instances)} instances "
+                f"({len(set(_pid_from_name(d.name) for d in instances))} patients).")
+    logger.info(f"Starting {N_FOLDS}-fold CV by patient. Model: {model_name}")
 
-        # --- Train ---
-        for epoch in range(cfg.training.epochs):
-            model.train()
-            total_loss = 0
-            for xb, yb in train_loader:
-                xb, yb = xb.to(device), yb.to(device)
-                optimizer.zero_grad()
-                loss = criterion(model(xb), yb)
-                loss.backward()
-                optimizer.step()
-                total_loss += loss.item()
+    # Get the model runner
+    runner = get_runner(model_name)
 
-            if (epoch + 1) % 50 == 0:
-                val_metrics = evaluate(model, val_loader, device, cfg.model.num_classes)
-                logger.info(f"[Fold {fold_idx+1}] Epoch {epoch+1:03d} | "
-                            f"Loss={total_loss/len(train_loader):.4f} | "
-                            f"Val F1={val_metrics['f1_macro']:.3f} | OA={val_metrics['oa']:.3f}")
+    all_rows = []
+    for k, (train_p, val_p, test_p) in enumerate(folds, start=1):
+        logger.info(f"Fold {k}: train={len(train_p)}, val={len(val_p)}, test={len(test_p)}")
 
-        logger.info(f"[Fold {fold_idx+1}] ✅ Training completed")
+        # 1) Training pixels
+        Xtr, ytr = _gather_training_pixels(processed_dir, instances, set(train_p))
+        logger.info(f"[Fold {k}] Training pixels: {len(ytr)}")
 
-        # =======================================================
-        # 1. Spectral Evaluation
-        # =======================================================
-        metrics_spectral, y_true, prob_map = evaluate(
-            model, test_loader, device, cfg.model.num_classes, return_probs=True
-        )
-        logger.info(f"[Spectral] F1={metrics_spectral['f1_macro']:.3f}, OA={metrics_spectral['oa']:.3f}")
-        logger.info(f"[Metrics] Sensitivity mean={metrics_spectral['sensitivity_mean']:.3f}, "
-            f"Specificity mean={metrics_spectral['specificity_mean']:.3f}")
-        logger.info(f"[Metrics] Sensitivity per classe: "
-                    f"{[round(v,3) for v in [metrics_spectral[k] for k in metrics_spectral if k.startswith('sens_class_')]]}")
-        logger.info(f"[Metrics] Specificity per classe: "
-                    f"{[round(v,3) for v in [metrics_spectral[k] for k in metrics_spectral if k.startswith('spec_class_')]]}")
+        # --- skip empty fold ---
+        if Xtr.size == 0:
+            logger.warning(f"[Fold {k}] Empty training set. Skipping this fold.")
+            continue
 
-               # =======================================================
-        # 2. Spatial–Spectral (KNN filter)
-        # =======================================================
-        # Attempt to load cube from processed data
-        # Find a matching folder in processed_dir (like "004-02" for "004")
-        patient_root = str(pids[0]).split('-')[0]
-        processed_root = Path(cfg.data.processed_dir)
-        matches = sorted([d for d in processed_root.iterdir() if d.name.startswith(patient_root)])
-        if len(matches) > 0:
-            cube_path = matches[0] / "preprocessed_cube.npy"
-            logger.info(f"[Spatial–Spectral] Loaded cube for patient {patient_root}: {cube_path}")
-        else:
-            cube_path = None
-            logger.warning(f"[Spatial–Spectral] ⚠ No matching cube found for patient {patient_root}")
+        # --- class distribution for debug ---
+        cls, cnt = np.unique(ytr, return_counts=True)
+        logger.info(f"[Fold {k}] Class distribution (0..3): {dict(zip(cls, cnt))}")
 
+        # 2) Train model
+        runner.fit(Xtr, ytr)
+        logger.info(f"[Fold {k}] Model training complete")
 
-        if cube_path.exists():
-            cube = np.load(cube_path)
-            logger.info(f"[Spatial–Spectral] Loaded cube for KNN filtering: {cube_path}")
-        else:
-            cube = None
-            logger.warning("[Spatial–Spectral] ⚠ Cube not found, fallback to 1D smoothing")
+        # 3) Inference + post-processing
+        fold_rows = []
+        for d in instances:
+            pid = _pid_from_name(d.name)
+            if pid not in test_p:
+                continue
 
-        prob_map_knn = apply_knn_filter(prob_map, cube=cube, cfg=cfg)
-        preds_knn = np.argmax(prob_map_knn, axis=1)
+            cube = np.load(d / "preprocessed_cube.npy")  # (bands,H,W)
+            gt = np.load(d / "gtMap.npy")                # (H,W)
+            bands, H, W = cube.shape
 
-        # --- ensure preds_knn matches y_true length ---
-        if len(preds_knn) > len(y_true):
-            print(f"[Spatial–Spectral] Cropping preds_knn ({len(preds_knn)} → {len(y_true)})")
-            preds_knn = preds_knn[:len(y_true)]
-        elif len(preds_knn) < len(y_true):
-            print(f"[Spatial–Spectral] Padding preds_knn ({len(preds_knn)} → {len(y_true)})")
-            pad = np.repeat(preds_knn[-1], len(y_true) - len(preds_knn))
-            preds_knn = np.concatenate([preds_knn, pad])
+            # --- Precompute PCA(1) once for both steps ---
+            pca = PCA(n_components=1)
+            pca_img = pca.fit_transform(cube.reshape(bands, -1).T).reshape(H, W)
+            cube_with_pc1 = cube
 
-        metrics_spatial = compute_all_metrics(y_true, preds_knn, cfg.model.num_classes)
+            # (1) Supervised classification
+            class_map, prob_all = runner.predict_full(cube)  # (H,W), (H,W,4)
 
-        logger.info(f"[Spatial–Spectral] F1={metrics_spatial['f1_macro']:.3f}, OA={metrics_spatial['oa']:.3f}")
-        logger.info(f"[Metrics] Sensitivity mean={metrics_spatial['sensitivity_mean']:.3f}, "
-            f"Specificity mean={metrics_spatial['specificity_mean']:.3f}")
-        logger.info(f"[Metrics] Sensitivity per classe: "
-                    f"{[round(v,3) for v in [metrics_spatial[k] for k in metrics_spatial if k.startswith('sens_class_')]]}")
-        logger.info(f"[Metrics] Specificity per classe: "
-                    f"{[round(v,3) for v in [metrics_spatial[k] for k in metrics_spatial if k.startswith('spec_class_')]]}")
+            # (2) KNN filtering guided by PCA(1)
+            prob_flat = prob_all.reshape(-1, prob_all.shape[-1])
+            prob_knn_flat = apply_knn_filter(
+                prob_flat, pc1=pca_img, cube=cube_with_pc1,
+                K=KNN_K, window_size=KNN_WINDOW,
+                lambda_=KNN_LAMBDA, distance=KNN_DISTANCE
+            )
+            class_knn = np.argmax(prob_knn_flat, axis=1).reshape(H, W)
 
-        # =======================================================
-        # 3. Majority Voting (HKM + voting)
-        # =======================================================
-        preds_mv = majority_voting(prob_map_knn, cube=cube, cfg=cfg)
+            # (3) HKM + Majority Voting (H2NMF-based)
+            class_mv = majority_voting(
+                class_knn, pc1=pca_img, cube=cube_with_pc1,
+                n_clusters=HKM_CLUSTERS, use_h2nmf=True
+            )
 
-        # --- ensure preds_mv matches y_true length ---
-        if len(preds_mv) > len(y_true):
-            print(f"[Majority Voting] Cropping preds_mv ({len(preds_mv)} → {len(y_true)})")
-            preds_mv = preds_mv[:len(y_true)]
-        elif len(preds_mv) < len(y_true):
-            print(f"[Majority Voting] Padding preds_mv ({len(preds_mv)} → {len(y_true)})")
-            pad = np.repeat(preds_mv[-1], len(y_true) - len(preds_mv))
-            preds_mv = np.concatenate([preds_mv, pad])
+            # ---- Metrics (excluding BG) ----
+            m_spec = _evaluate_map(gt, class_map)
+            m_knn = _evaluate_map(gt, class_knn)
+            m_mv = _evaluate_map(gt, class_mv)
 
-        metrics_mv = compute_all_metrics(y_true, preds_mv, cfg.model.num_classes)
-        logger.info(f"[Majority Voting] F1={metrics_mv['f1_macro']:.3f}, OA={metrics_mv['oa']:.3f}")
-        logger.info(f"[Metrics] Sensitivity mean={metrics_mv['sensitivity_mean']:.3f}, "
-            f"Specificity mean={metrics_mv['specificity_mean']:.3f}")
-        logger.info(f"[Metrics] Sensitivity per classe: "
-                    f"{[round(v,3) for v in [metrics_mv[k] for k in metrics_mv if k.startswith('sens_class_')]]}")
-        logger.info(f"[Metrics] Specificity per classe: "
-                    f"{[round(v,3) for v in [metrics_mv[k] for k in metrics_mv if k.startswith('spec_class_')]]}")
+            row = {
+                "fold": k, "patient": pid,
+                "spectral_f1": m_spec["f1_macro"], "spectral_oa": m_spec["oa"],
+                "spatial_f1": m_knn["f1_macro"], "spatial_oa": m_knn["oa"],
+                "mv_f1": m_mv["f1_macro"], "mv_oa": m_mv["oa"],
+            }
+            fold_rows.append(row)
+            logger.info(f"[Fold {k} | PID {pid}] F1: Spec={row['spectral_f1']:.3f} "
+                        f"→ KNN={row['spatial_f1']:.3f} → MV={row['mv_f1']:.3f}")
 
-        # --- Save results for this fold ---
-        all_results.append({
-            "fold": fold_idx + 1,
-            "spectral_f1": metrics_spectral["f1_macro"],
-            "spatial_f1": metrics_spatial["f1_macro"],
-            "mv_f1": metrics_mv["f1_macro"],
-            "spectral_oa": metrics_spectral["oa"],
-            "spatial_oa": metrics_spatial["oa"],
-            "mv_oa": metrics_mv["oa"]
-        })
+        all_rows.extend(fold_rows)
 
-    # =======================================================
-    # Save cross-fold summary
-    # =======================================================
-    df = pd.DataFrame(all_results)
-    df.loc["mean"] = df.mean(numeric_only=True)
-    df.loc["std"] = df.std(numeric_only=True)
-    out_path = Path(cfg.experiment.output_dir) / "metrics_summary.csv"
-    df.to_csv(out_path, index=True)
-    logger.info(f"\n📊 Saved summary results → {out_path}")
+    # Results summary
+    df = pd.DataFrame(all_rows)
+    out_dir = OUTPUT_DIR
+    df.to_csv(out_dir / "metrics_per_patient.csv", index=False)
+
+    if not df.empty:
+        summary = df.groupby("fold")[[
+            "spectral_f1", "spatial_f1", "mv_f1",
+            "spectral_oa", "spatial_oa", "mv_oa"
+        ]].mean()
+        summary.loc["mean"] = summary.mean()
+        summary.loc["std"] = summary.std()
+        summary.to_csv(out_dir / "metrics_summary.csv")
+        logger.info(f"📊 Saved → {out_dir/'metrics_summary.csv'}")
+
+    logger.info("✅ Pipeline completed.")
 
 
 # ============================================================
@@ -253,7 +256,8 @@ def main(cfg_path):
 # ============================================================
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--config", required=True, help="Path to experiment YAML file")
-    args = parser.parse_args()
-    main(args.config)
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--model", required=True,
+                    help="Model name (dnn, svm-l, svm-rbf, knn-e, rf, ebeae, nebeae)")
+    args = ap.parse_args()
+    main(args.model)

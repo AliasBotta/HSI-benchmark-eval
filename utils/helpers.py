@@ -2,7 +2,7 @@
 helpers.py
 -----------
 
-General-purpose helper utilities for configuration, logging, reproducibility,
+General-purpose helper utilities for logging, reproducibility,
 and simple system functions used across the HSI benchmark pipeline.
 """
 
@@ -16,22 +16,6 @@ from datetime import datetime
 
 import numpy as np
 import torch
-from omegaconf import OmegaConf
-
-
-# ============================================================
-# Configuration Utilities
-# ============================================================
-
-def load_config(cfg_path: str):
-    """Load an OmegaConf YAML config file."""
-    cfg = OmegaConf.load(cfg_path)
-    return OmegaConf.to_container(cfg, resolve=True)
-
-
-def print_config(cfg):
-    """Pretty print the configuration tree."""
-    print(OmegaConf.to_yaml(cfg))
 
 
 # ============================================================
@@ -107,14 +91,6 @@ def get_timestamp():
     return datetime.now().strftime("%Y%m%d_%H%M%S")
 
 
-def get_output_dir(cfg, subfolder=None):
-    """Return the experiment’s output directory path."""
-    base_dir = Path(cfg.experiment.output_dir)
-    if subfolder:
-        return base_dir / subfolder
-    return base_dir
-
-
 def list_files(directory: str, extension: str = None):
     """List all files in a directory with optional extension filter."""
     files = sorted(Path(directory).glob(f"*{extension or ''}"))
@@ -145,7 +121,7 @@ class Timer:
 # ============================================================
 
 def flatten_dict(d, parent_key="", sep="."):
-    """Flatten nested dictionaries (useful for logging configs)."""
+    """Flatten nested dictionaries (useful for logging simple param dicts)."""
     items = []
     for k, v in d.items():
         new_key = f"{parent_key}{sep}{k}" if parent_key else k
@@ -154,4 +130,3 @@ def flatten_dict(d, parent_key="", sep="."):
         else:
             items.append((new_key, v))
     return dict(items)
-
