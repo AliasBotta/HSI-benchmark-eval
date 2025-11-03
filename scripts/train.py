@@ -25,6 +25,7 @@ from utils.metrics import compute_all_metrics
 from utils.spatial_filtering import apply_knn_filter
 from utils.postprocessing import majority_voting
 from models import get_runner
+from utils.data_reduction import reduce_training_data
 
 
 # ============================================================
