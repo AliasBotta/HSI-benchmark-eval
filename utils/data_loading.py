@@ -66,10 +66,10 @@ def load_dataset_instance(instance_dir,
       - dark reference
       - ground truth map
 
-    Returns a dict with arrays.
-
-    NOTE: Default names correspond to the original dataset.
-          You can override them in the call if needed.
+    Returns
+    -------
+    data : dict[str, np.ndarray]
+        Keys: 'raw', 'white_ref', 'dark_ref', 'gt'
     """
     d = Path(instance_dir)
     data = {}
@@ -91,12 +91,28 @@ def load_dataset_instance(instance_dir,
         print(f"[WARNING] Could not load {instance_dir}: {e}")
         return None
 
-    # Validate shapes
-    if data["raw"].shape[1:] != data["gt"].shape:
-        print(f"[WARNING] Shape mismatch in {instance_dir}: "
-              f"raw {data['raw'].shape[1:]} vs gt {data['gt'].shape}")
+    # --- Normalize GT shape ---
+    gt = data["gt"]
+    if gt.ndim == 3 and gt.shape[-1] == 1:
+        gt = gt.squeeze(-1)  # (H, W, 1) → (H, W)
 
+    raw_h, raw_w = data["raw"].shape[1:]
+    gt_h, gt_w = gt.shape[:2]
+
+    # --- Handle small mismatches silently ---
+    if (raw_h, raw_w) != (gt_h, gt_w):
+        # if difference only by 1 px (rounding, sensor cropping), crop to overlap
+        min_h = min(raw_h, gt_h)
+        min_w = min(raw_w, gt_w)
+        gt = gt[:min_h, :min_w]
+        data["raw"] = data["raw"][:, :min_h, :min_w]
+        # optional debug print
+        print(f"[INFO] Auto-aligned shapes in {instance_dir}: "
+              f"raw→{data['raw'].shape[1:]}, gt→{gt.shape}")
+
+    data["gt"] = gt
     return data
+
 
 
 # ============================================================
