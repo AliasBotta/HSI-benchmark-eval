@@ -104,17 +104,19 @@ def _gather_training_pixels(processed_dir: Path, instances, train_pids):
         if pid not in train_pids:
             continue
         cube = np.load(d / "preprocessed_cube.npy")      # (bands,H,W)
-        gt = np.load(d / "gtMap.npy")                    # (H,W)
+        gt = np.load(d / "gtMap.npy")                    # (H,W) with labels 1..4 (MATLAB-style)
         bands, H, W = cube.shape
         flat = cube.reshape(bands, -1).T                 # (H*W, bands)
         gt_f = gt.reshape(-1)
         m = gt_f > 0
         if m.any():
             X_list.append(flat[m])
-            y_list.append(gt_f[m] - 1)                   # 0..3 (TT=0, NT=1, BV=2, BG=3)
+            # Map to zero-based fixed order {0:NT, 1:TT, 2:BV, 3:BG}
+            y_list.append(gt_f[m] - 1)
     if not X_list:
         return np.empty((0,)), np.empty((0,), int)
     return np.concatenate(X_list, axis=0), np.concatenate(y_list, axis=0)
+
 
 
 def _evaluate_map(gt_map, pred_map, bg_index=BG_INDEX):
@@ -166,23 +168,36 @@ def main(model_name: str):
         logger.info(f"Fold {k}: train={len(train_p)}, val={len(val_p)}, test={len(test_p)}")
 
         # 1) Training pixels
-        Xtr, ytr = _gather_training_pixels(processed_dir, instances, set(train_p))
-        logger.info(f"[Fold {k}] Training pixels: {len(ytr)}")
+        Xtr_raw, ytr_raw = _gather_training_pixels(processed_dir, instances, set(train_p))
+        logger.info(f"[Fold {k}] Training pixels (raw): {len(ytr_raw)}")
 
-        # --- skip empty fold ---
-        if Xtr.size == 0:
+        if Xtr_raw.size == 0:
             logger.warning(f"[Fold {k}] Empty training set. Skipping this fold.")
             continue
 
-        # --- class distribution for debug ---
-        cls, cnt = np.unique(ytr, return_counts=True)
-        logger.info(f"[Fold {k}] Class distribution (0..3): {dict(zip(cls, cnt))}")
+        # --- Class distribution (raw) ---
+        cls, cnt = np.unique(ytr_raw, return_counts=True)
+        logger.info(f"[Fold {k}] Raw class distribution (0:NT,1:TT,2:BV,3:BG): {dict(zip(cls, cnt))}")
 
-        # 2) Train model
+        # 2) Paper-aligned training-set reduction (KMeans+SAM)
+        Xtr, ytr = reduce_training_data(
+            Xtr_raw, ytr_raw,
+            enabled=REDUCTION_ENABLED,
+            clusters_per_class=REDUCTION_CLUSTERS,
+            target_per_class=REDUCTION_TARGET_PER_CLASS,
+            random_seed=SEED
+        )
+        logger.info(f"[Fold {k}] Reduced training pixels: {len(ytr)}")
+
+        # --- distribution after reduction ---
+        cls_r, cnt_r = np.unique(ytr, return_counts=True)
+        logger.info(f"[Fold {k}] Reduced class distribution: {dict(zip(cls_r, cnt_r))}")
+
+        # 3) Train model
         runner.fit(Xtr, ytr)
         logger.info(f"[Fold {k}] Model training complete")
 
-        # 3) Inference + post-processing
+        # 4) Inference + post-processing
         fold_rows = []
         for d in instances:
             pid = _pid_from_name(d.name)
@@ -193,18 +208,20 @@ def main(model_name: str):
             gt = np.load(d / "gtMap.npy")                # (H,W)
             bands, H, W = cube.shape
 
-            # --- Precompute PCA(1) once for both steps ---
+            # --- PCA(1) once per image ---
             pca = PCA(n_components=1)
             pca_img = pca.fit_transform(cube.reshape(bands, -1).T).reshape(H, W)
-            cube_with_pc1 = cube
 
             # (1) Supervised classification
             class_map, prob_all = runner.predict_full(cube)  # (H,W), (H,W,4)
+            # prob_all must follow [NT, TT, BV, BG]; ensure shape consistency
+            if prob_all.shape[-1] != 4:
+                raise ValueError("Model must output probabilities with 4 channels [NT, TT, BV, BG].")
 
             # (2) KNN filtering guided by PCA(1)
             prob_flat = prob_all.reshape(-1, prob_all.shape[-1])
             prob_knn_flat = apply_knn_filter(
-                prob_flat, pc1=pca_img, cube=cube_with_pc1,
+                prob_flat, pc1=pca_img, cube=cube,
                 K=KNN_K, window_size=KNN_WINDOW,
                 lambda_=KNN_LAMBDA, distance=KNN_DISTANCE
             )
@@ -212,7 +229,7 @@ def main(model_name: str):
 
             # (3) HKM + Majority Voting (H2NMF-based)
             class_mv = majority_voting(
-                class_knn, pc1=pca_img, cube=cube_with_pc1,
+                class_knn, pc1=pca_img, cube=cube,
                 n_clusters=HKM_CLUSTERS, use_h2nmf=True
             )
 
