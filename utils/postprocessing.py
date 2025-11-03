@@ -62,59 +62,38 @@ def hierarchical_kmeans(X, target_clusters=24, random_state=0):
     return labels
 
 
+from sklearn.cluster import KMeans
+import numpy as np
+
 def majority_voting(knn_class_map, pc1=None, cube=None, n_clusters=24, use_h2nmf=False):
     """
-    Apply HKM or H2NMF segmentation + majority voting to smooth predictions.
+    Majority voting post-processing after KNN filtering.
 
-    Parameters
-    ----------
-    knn_class_map : np.ndarray
-        (H, W) class labels after KNN spatial filtering.
-    pc1 : np.ndarray, optional
-        (H, W) precomputed PCA(1) image, if available.
-    cube : np.ndarray, optional
-        (bands, H, W) preprocessed hyperspectral cube.
-    n_clusters : int
-        Number of clusters for segmentation (default = 24).
-    use_h2nmf : bool
-        If True, use hierarchical rank-2 NMF segmentation (closer to MATLAB).
-        If False, fall back to hierarchical KMeans on PCA features.
-
-    Returns
-    -------
-    mv_class_map : np.ndarray
-        (H, W) array of smoothed predictions.
+    Now uses Hierarchical K-means segmentation in [PC1, λ·x, λ·y] space
+    to create spatially compact regions (as in the paper).
     """
-    print("[Postprocessing] Applying Majority Voting (HKM/H2NMF)...")
 
-    if cube is None and pc1 is None:
-        print("[Postprocessing] ⚠ No cube or PC1 provided — fallback to identity (no segmentation).")
-        return knn_class_map.copy()
-
-    if use_h2nmf:
-        print(f"[Postprocessing] Using hierarchical rank-2 NMF segmentation ({n_clusters} clusters).")
-        cluster_map = h2nmf_segmentation(cube, target_clusters=n_clusters)
-    else:
-        if pc1 is not None:
-            X_red = pc1.reshape(-1, 1)
-        else:
-            bands, H, W = cube.shape
-            X = cube.reshape(bands, -1).T
-            pca = PCA(n_components=min(5, bands))
-            X_red = pca.fit_transform(X)
-        seg_labels = hierarchical_kmeans(X_red, target_clusters=n_clusters)
-        H, W = knn_class_map.shape
-        cluster_map = seg_labels.reshape(H, W)
-
-    # --- Majority voting within clusters ---
     H, W = knn_class_map.shape
-    mv_class_map = np.zeros((H, W), dtype=knn_class_map.dtype)
-    for cl in np.unique(cluster_map):
-        idx = np.where(cluster_map == cl)
-        if len(idx[0]) == 0:
+    if pc1 is None:
+        raise ValueError("majority_voting requires pc1 (PCA(1)) image for clustering.")
+
+    # --- Spatially-aware HKM segmentation ---
+    yy, xx = np.mgrid[0:H, 0:W]
+    lambda_spatial = 2.0  # spatial weighting factor (1–3 recommended)
+    feats = np.stack([pc1, lambda_spatial * xx, lambda_spatial * yy], axis=-1).reshape(-1, 3)
+
+    km = KMeans(n_clusters=n_clusters, n_init=5, random_state=42)
+    labels = km.fit_predict(feats).reshape(H, W)
+
+    # --- Majority vote within each cluster ---
+    class_mv = np.zeros_like(knn_class_map)
+    for i in range(n_clusters):
+        mask = (labels == i)
+        if not np.any(mask):
             continue
-        labels, counts = np.unique(knn_class_map[idx], return_counts=True)
-        mv_class_map[idx] = labels[np.argmax(counts)]
+        vals, counts = np.unique(knn_class_map[mask], return_counts=True)
+        maj = vals[np.argmax(counts)]
+        class_mv[mask] = maj
 
     print("[Postprocessing] ✅ Majority voting fusion complete.")
-    return mv_class_map
+    return class_mv
