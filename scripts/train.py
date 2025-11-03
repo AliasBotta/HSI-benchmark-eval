@@ -125,22 +125,22 @@ def _gather_training_pixels(processed_dir: Path, instances, train_pids):
 
 
 
-def _evaluate_map(gt_map, pred_map, bg_index=BG_INDEX):
+def _evaluate_map(gt_map, pred_map):
     """Compute metrics on labeled pixels (gt>0) excluding BG from evaluation.
     Predictions that are BG where GT is non-BG are counted as errors."""
     gt = gt_map.flatten()
     pr = pred_map.flatten()
 
     mask_labeled = gt > 0
-    gt = gt[mask_labeled] - 1
-    pr = pr[mask_labeled]
+    gt = gt[mask_labeled] - 1                      # now in {0:NT,1:TT,2:BV,3:BG}
+    pr = pr[mask_labeled]                          # predictions in {0..3}
 
-    # Drop BG from GT, but keep predictions (BG pred = error)
-    keep = gt != bg_index
-    gt = gt[keep]              # values in {0,1,2}
-    pr = pr[keep]              # values in {0,1,2,3}
+    # Drop BG from GT, keep BG predictions as errors
+    keep = gt != 3
+    gt = gt[keep]                                  # values in {0,1,2}
+    pr = pr[keep]                                  # values in {0,1,2,3}
 
-    # Cap predictions to valid evaluation labels (avoid index issues)
+    # Map predictions >2 to an invalid label (-1) to be counted as errors
     pr_eval = np.where(pr > 2, -1, pr)
     return compute_all_metrics(gt, pr_eval, num_classes=3, labels=[0, 1, 2])
 
