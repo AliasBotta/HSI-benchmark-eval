@@ -11,7 +11,8 @@ from scipy.ndimage import uniform_filter1d
 
 
 def apply_knn_filter(prob_map, pc1=None, cube=None, K=40, lambda_=1.0,
-                     window_size=14, distance="euclidean"):
+                     window_size=8, distance="euclidean"):
+
     """
     Apply KNN smoothing to model probability maps guided by PCA(1) image.
     Faithful to the HSI-benchmark (2D spatial–spectral smoothing guided by PC1).

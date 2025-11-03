@@ -21,28 +21,33 @@ from torch.utils.data import TensorDataset, DataLoader
 from . import BaseRunner
 
 class DNN1D(nn.Module):
-    def __init__(self, input_dim=128, num_classes=4, hidden_dims=(256, 256), dropout=0.0):
+    def __init__(self, input_dim=128, num_classes=4, hidden_dims=(256, 256)):
         super().__init__()
-        layers = []
-        in_dim = input_dim
+        assert len(hidden_dims) == 2, "This paper-aligned DNN expects exactly two hidden layers."
 
-        # Hidden layers
-        for h in hidden_dims:
-            layers += [
-                nn.Linear(in_dim, h),
-                nn.BatchNorm1d(h),
-                nn.ReLU(inplace=True),
-                nn.Dropout(dropout),
-            ]
-            in_dim = h
+        h1, h2 = hidden_dims
+
+        # Hidden layer 1: Linear -> ReLU (no BatchNorm here)
+        layer1 = [
+            nn.Linear(input_dim, h1),
+            nn.ReLU(inplace=True),
+        ]
+
+        # Hidden layer 2: Linear -> BatchNorm -> ReLU
+        layer2 = [
+            nn.Linear(h1, h2),
+            nn.BatchNorm1d(h2),
+            nn.ReLU(inplace=True),
+        ]
 
         # Output layer
-        layers += [nn.Linear(in_dim, num_classes)]
+        out = [nn.Linear(h2, num_classes)]
 
-        self.net = nn.Sequential(*layers)
+        self.net = nn.Sequential(*(layer1 + layer2 + out))
 
     def forward(self, x):
         return self.net(x)
+
 
 class DNNRunner(BaseRunner):
     """
@@ -79,8 +84,8 @@ class DNNRunner(BaseRunner):
 
         # Model (will be rebuilt on fit if input_dim mismatches)
         self.net = DNN1D(input_dim=input_dim,
-                         num_classes=num_classes,
-                         hidden_dims=hidden_dims).to(self.device)
+                        num_classes=num_classes,
+                        hidden_dims=hidden_dims).to(self.device)
         self.softmax = nn.Softmax(dim=1)
 
     # ------------------------------------------------------------
@@ -124,11 +129,6 @@ class DNNRunner(BaseRunner):
                                     momentum=self.momentum,
                                     weight_decay=self.weight_decay)
 
-        # Optional simple LR decay for stability
-        scheduler = torch.optim.lr_scheduler.MultiStepLR(
-            optimizer, milestones=[int(self.epochs*0.5), int(self.epochs*0.8)], gamma=0.1
-        )
-
         # Training loop
         self.net.train()
         for epoch in range(self.epochs):
@@ -140,10 +140,10 @@ class DNNRunner(BaseRunner):
                 loss.backward()
                 optimizer.step()
                 total_loss += loss.item()
-            scheduler.step()
-            if (epoch + 1) % 10 == 0 or epoch == 0:
+
+            if (epoch + 1) % 50 == 0 or epoch == 0:
                 print(f"[DNNRunner] Epoch {epoch+1}/{self.epochs} | "
-                      f"LR: {scheduler.get_last_lr()[0]:.4f} | Loss: {total_loss/len(dl):.4f}")
+                    f"LR: {self.learning_rate:.4f} | Loss: {total_loss/len(dl):.4f}")
 
     # ------------------------------------------------------------
     # Prediction

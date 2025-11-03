@@ -29,55 +29,50 @@ def compute_all_metrics(y_true, y_pred, num_classes, labels=None):
     """
     Compute global and per-class metrics consistent with HSI-benchmark.
 
-    Parameters
-    ----------
-    y_true : np.ndarray
-        Ground-truth integer labels.
-    y_pred : np.ndarray
-        Predicted integer labels.
-    num_classes : int
-        Total number of classes (e.g., 4 for TT, NT, BV, BG).
-    labels : list[int], optional
-        Specific labels to include in the evaluation
-        (e.g., [0,1,2] to exclude background class).
-
-    Returns
-    -------
-    metrics : dict
-        Dictionary containing macro F1, OA, per-class sensitivity/specificity,
-        and their means.
+    This implementation computes macro F1 manually over the provided 'labels'
+    so that predictions outside 'labels' (e.g., -1 standing for BG errors)
+    are treated as negatives for all evaluated classes (i.e., they count as errors),
+    instead of being silently ignored by sklearn's label filtering.
     """
     metrics = {}
     if labels is None:
         labels = list(range(num_classes))
     labels = list(labels)
 
-    # --- Macro F1 on the eval labels only ---
-    metrics["f1_macro"] = f1_score(y_true, y_pred, labels=labels, average="macro", zero_division=0)
-    metrics["oa"] = accuracy_score(y_true, y_pred)
-
-    # --- Per-class metrics (mask-based, robust to invalid preds) ---
-    sensitivity = []
-    specificity = []
-
     y_true = np.asarray(y_true)
     y_pred = np.asarray(y_pred)
 
+    # Overall accuracy: raw match rate (preds outside labels will mismatch)
+    metrics["oa"] = accuracy_score(y_true, y_pred)
+
+    # Per-class TP/FP/FN and F1
+    f1s = []
+    sensitivity = []
+    specificity = []
+
     for c in labels:
-        tpos = np.sum((y_true == c) & (y_pred == c))
-        fneg = np.sum((y_true == c) & (y_pred != c))
-        fpos = np.sum((y_true != c) & (y_pred == c))
-        tneg = np.sum((y_true != c) & (y_pred != c))
+        # one-vs-rest masks
+        y_t_pos = (y_true == c)
+        y_p_pos = (y_pred == c)
 
-        sens = tpos / (tpos + fneg + 1e-8)
-        spec = tneg / (tneg + fpos + 1e-8)
+        tp = np.sum(y_t_pos & y_p_pos)
+        fn = np.sum(y_t_pos & (~y_p_pos))
+        fp = np.sum((~y_t_pos) & y_p_pos)
+        tn = np.sum((~y_t_pos) & (~y_p_pos))
 
-        metrics[f"sens_class_{c}"] = sens
-        metrics[f"spec_class_{c}"] = spec
-        sensitivity.append(sens)
-        specificity.append(spec)
+        prec = tp / (tp + fp + 1e-8)
+        rec  = tp / (tp + fn + 1e-8)
+        f1   = 2 * prec * rec / (prec + rec + 1e-8)
 
+        metrics[f"sens_class_{c}"] = rec
+        metrics[f"spec_class_{c}"] = tn / (tn + fp + 1e-8)
+        sensitivity.append(rec)
+        specificity.append(metrics[f"spec_class_{c}"])
+        f1s.append(f1)
+
+    metrics["f1_macro"] = float(np.mean(f1s)) if f1s else 0.0
     metrics["sensitivity_mean"] = float(np.mean(sensitivity)) if sensitivity else 0.0
     metrics["specificity_mean"] = float(np.mean(specificity)) if specificity else 0.0
     return metrics
+
 

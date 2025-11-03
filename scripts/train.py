@@ -49,7 +49,7 @@ REDUCTION_TARGET_PER_CLASS = 1000 # {1000, 2000, 4000}; paper uses 1000 for spee
 # KNN filter params (paper)
 KNN_ENABLED = True
 KNN_K = 40
-KNN_WINDOW = 14
+KNN_WINDOW = 8
 KNN_LAMBDA = 1
 KNN_DISTANCE = "euclidean"
 
@@ -79,7 +79,7 @@ def _pid_from_name(dirname: str) -> str:
 
 
 def _make_patient_folds(instances, n_folds=N_FOLDS, split=SPLIT, random_seed=SEED):
-    """Create patient-level folds (same rotation logic as paper)."""
+    """Create patient-level folds with circular test rotation (fixed-size test set per fold)."""
     pids = sorted(list({_pid_from_name(d.name) for d in instances}))
     rng = np.random.default_rng(random_seed)
     rng.shuffle(pids)
@@ -87,14 +87,22 @@ def _make_patient_folds(instances, n_folds=N_FOLDS, split=SPLIT, random_seed=SEE
     n_total = len(pids)
     n_train = int(split[0] * n_total)
     n_val = int(split[1] * n_total)
-    n_test = max(1, n_total - n_train - n_val)
+    n_test = max(1, n_total - n_train - n_val)  # fixed test size per fold
 
     folds = []
     for k in range(n_folds):
         start = (k * n_test) % n_total
         end = start + n_test
-        test_p = pids[start:end]
+
+        # circular slice to guarantee fixed-size test set
+        if end <= n_total:
+            test_p = pids[start:end]
+        else:
+            wrap = end % n_total
+            test_p = pids[start:] + pids[:wrap]
+
         remain = [p for p in pids if p not in test_p]
+        # keep val proportion relative to (train+val)
         n_val_local = int(split[1] / (split[0] + split[1]) * len(remain))
         val_p = remain[:n_val_local]
         train_p = remain[n_val_local:]
@@ -236,7 +244,7 @@ def main(model_name: str):
             # (3) HKM + Majority Voting (H2NMF-based)
             class_mv = majority_voting(
                 class_knn, pc1=pca_img, cube=cube,
-                n_clusters=HKM_CLUSTERS, use_h2nmf=True
+                n_clusters=HKM_CLUSTERS, use_h2nmf=False
             )
 
             # ---- Metrics (excluding BG) ----

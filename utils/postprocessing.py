@@ -62,7 +62,7 @@ def hierarchical_kmeans(X, target_clusters=24, random_state=0):
     return labels
 
 
-def majority_voting(knn_class_map, pc1=None, cube=None, n_clusters=24, use_h2nmf=True):
+def majority_voting(knn_class_map, pc1=None, cube=None, n_clusters=24, use_h2nmf=False):
     """
     Apply HKM or H2NMF segmentation + majority voting to smooth predictions.
 
