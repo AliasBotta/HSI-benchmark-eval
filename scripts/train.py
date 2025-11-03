@@ -29,7 +29,7 @@ from utils.data_reduction import reduce_training_data
 
 
 # ============================================================
-# GLOBAL PIPELINE PARAMETERS (replacing YAML)
+# GLOBAL PIPELINE PARAMETERS 
 # ============================================================
 
 SEED = 42
@@ -41,7 +41,12 @@ PROCESSED_DIR = Path("data/processed")
 N_FOLDS = 5
 SPLIT = (0.6, 0.2, 0.2)  # train, val, test
 
-# KNN filter params
+# Training-set reduction (paper presets)
+REDUCTION_ENABLED = True
+REDUCTION_CLUSTERS = 100          # paper
+REDUCTION_TARGET_PER_CLASS = 1000 # {1000, 2000, 4000}; paper uses 1000 for speed
+
+# KNN filter params (paper)
 KNN_ENABLED = True
 KNN_K = 40
 KNN_WINDOW = 14
@@ -53,7 +58,7 @@ HKM_CLUSTERS = 24
 
 # Classes
 NUM_CLASSES = 4
-BG_INDEX = 3
+# Mapping is fixed: {0:NT, 1:TT, 2:BV, 3:BG}
 
 
 # ============================================================
