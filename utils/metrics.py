@@ -12,19 +12,6 @@ import numpy as np
 from sklearn.metrics import f1_score, accuracy_score, confusion_matrix
 
 
-# ============================================================
-# Basic Metrics
-# ============================================================
-
-def overall_accuracy(y_true, y_pred):
-    """Compute overall accuracy (OA)."""
-    return np.mean(y_true == y_pred)
-
-
-# ============================================================
-# Full Benchmark Metrics
-# ============================================================
-
 def compute_all_metrics(y_true, y_pred, num_classes, labels=None):
     """
     Compute global and per-class metrics consistent with HSI-benchmark.
@@ -35,20 +22,21 @@ def compute_all_metrics(y_true, y_pred, num_classes, labels=None):
     instead of being silently ignored by sklearn's label filtering.
     """
     metrics = {}
-    if labels is None:
+    if labels is None: # if labels isn't set, it sets labels as [0,1,.. num_classes-1]
         labels = list(range(num_classes))
     labels = list(labels)
 
+    #vectorize
     y_true = np.asarray(y_true)
     y_pred = np.asarray(y_pred)
-
-    # Overall accuracy: raw match rate (preds outside labels will mismatch)
-    metrics["oa"] = accuracy_score(y_true, y_pred)
 
     # Per-class TP/FP/FN and F1
     f1s = []
     sensitivity = []
     specificity = []
+
+    oa_numerator = 0.0
+    oa_denominator = 0.0
 
     for c in labels:
         # one-vs-rest masks
@@ -64,12 +52,17 @@ def compute_all_metrics(y_true, y_pred, num_classes, labels=None):
         rec  = tp / (tp + fn + 1e-8)
         f1   = 2 * prec * rec / (prec + rec + 1e-8)
 
+
         metrics[f"sens_class_{c}"] = rec
         metrics[f"spec_class_{c}"] = tn / (tn + fp + 1e-8)
         sensitivity.append(rec)
         specificity.append(metrics[f"spec_class_{c}"])
         f1s.append(f1)
 
+        oa_numerator += tp
+        oa_denominator+= (tp + fn)
+
+    metrics["oa"] = float(oa_numerator / (oa_denominator + 1e-8)) if oa_denominator > 0 else 0.0
     metrics["f1_macro"] = float(np.mean(f1s)) if f1s else 0.0
     metrics["sensitivity_mean"] = float(np.mean(sensitivity)) if sensitivity else 0.0
     metrics["specificity_mean"] = float(np.mean(specificity)) if specificity else 0.0
