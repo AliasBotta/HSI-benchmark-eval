@@ -19,14 +19,17 @@ class BaseRunner(ABC):
     Base interface for all supervised models.
 
     Each subclass must implement:
-        - fit(X, y)
-        - predict_full(cube) → (class_map, prob_all)
+        - fit(X_train, y_train, X_val, y_val)
+        - predict_full(cube) -> (class_map, prob_all)
     """
     name: str = "base"
 
     @abstractmethod
-    def fit(self, X, y):
-        """Train model on flattened pixel-level spectra."""
+    def fit(self, X_train, y_train, X_val=None, y_val=None): # <-- MODIFIED
+        """
+        Train model on flattened pixel-level spectra.
+        X_val and y_val are optionally used for hyperparameter optimization.
+        """
         pass
 
     @abstractmethod

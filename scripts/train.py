@@ -181,12 +181,15 @@ def main(model_name: str):
     for k, (train_p, val_p, test_p) in enumerate(folds, start=1):
         logger.info(f"Fold {k}: train={len(train_p)}, val={len(val_p)}, test={len(test_p)}")
 
-        # 1) Training pixels
+        # 1) Training & Validation pixels
         Xtr_raw, ytr_raw = _gather_training_pixels(processed_dir, instances, set(train_p))
+        Xval_raw, yval_raw = _gather_training_pixels(processed_dir, instances, set(val_p)) # <-- MODIFIED
+        
         logger.info(f"[Fold {k}] Training pixels (raw): {len(ytr_raw)}")
+        logger.info(f"[Fold {k}] Validation pixels (raw): {len(yval_raw)}") # <-- ADDED
 
-        if Xtr_raw.size == 0:
-            logger.warning(f"[Fold {k}] Empty training set. Skipping this fold.")
+        if Xtr_raw.size == 0 or Xval_raw.size == 0: # <-- MODIFIED
+            logger.warning(f"[Fold {k}] Empty training or validation set. Skipping this fold.") # <-- MODIFIED
             continue
 
         # --- Class distribution (raw) ---
@@ -201,14 +204,17 @@ def main(model_name: str):
             target_per_class=REDUCTION_TARGET_PER_CLASS,
             random_seed=SEED
         )
-        logger.info(f"[Fold {k}] Reduced training pixels: {len(ytr)}")
+        # Use the un-reduced validation set for tuning
+        Xval, yval = Xval_raw, yval_raw # <-- ADDED
 
+        logger.info(f"[Fold {k}] Reduced training pixels: {len(ytr)}")
+        
         # --- distribution after reduction ---
         cls_r, cnt_r = np.unique(ytr, return_counts=True)
         logger.info(f"[Fold {k}] Reduced class distribution: {dict(zip(cls_r, cnt_r))}")
 
-        # 3) Train model
-        runner.fit(Xtr, ytr)
+        # 3) Train model (now includes optimization on val set)
+        runner.fit(Xtr, ytr, Xval, yval) # <-- MODIFIED SIGNATURE
         logger.info(f"[Fold {k}] Model training complete")
 
         # 4) Inference + post-processing
