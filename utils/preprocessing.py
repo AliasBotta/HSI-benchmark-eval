@@ -55,14 +55,32 @@ def remove_noisy_channels(data, start, end):
 
 def downsample_spectrum(data, final_channels=128):
     """
-    Uniformly sample the spectral dimension to reduce band count.
-    Approximates 3.61 nm spectral step reduction.
+    Downsample spectrum using block averaging (binning) to match the
+    paper's likely "decimation" / "band averaging" method, rather than
+    sparse sampling (linspace).
     """
-    n_bands = data.shape[0]
+    n_bands, H, W = data.shape # Input shape (bands, H, W)
     if final_channels >= n_bands:
         return data
-    idx = np.linspace(0, n_bands - 1, final_channels).astype(int)
-    return data[idx]
+
+    # Calculate the size of each bin (how many old bands to average for 1 new band)
+    # 645 bands / 128 channels approx 5.03
+    bin_size = n_bands // final_channels
+
+    # We can only average a number of bands that is a multiple of bin_size
+    n_bands_binned = final_channels * bin_size
+
+    # Crop the data to be a multiple of the final_channels for easy averaging
+    data_cropped = data[:n_bands_binned, :, :]
+
+    # Reshape for averaging: (final_channels, bin_size, H, W)
+    # This groups the bands into blocks of 'bin_size'
+    data_reshaped = data_cropped.reshape(final_channels, bin_size, H, W)
+
+    # Compute the mean over the 'bin_size' axis (axis 1)
+    data_binned = data_reshaped.mean(axis=1)
+
+    return data_binned
 
 
 def normalize_minmax(data):
