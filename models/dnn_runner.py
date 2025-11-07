@@ -105,17 +105,12 @@ class DNNRunner(BaseRunner):
         yt = torch.tensor(y_train, dtype=torch.long)
         dl = DataLoader(TensorDataset(Xt, yt), batch_size=self.batch_size, shuffle=True, drop_last=False)
         
-        # Inverse-frequency class weights
-        cls, cnt = np.unique(y_train, return_counts=True)
-        weights = np.zeros(self.num_classes, dtype=np.float32)
-        weights[cls] = 1.0 / (cnt + 1e-8)
-        weights = torch.tensor(weights / (weights.sum() + 1e-8) * len(weights), dtype=torch.float32).to(self.device)
+        criterion = nn.CrossEntropyLoss()
 
-        criterion = nn.CrossEntropyLoss(weight=weights)
         optimizer = torch.optim.SGD(net.parameters(),
-                                      lr=self.learning_rate,
-                                      momentum=self.momentum,
-                                      weight_decay=self.weight_decay)
+                                    lr=self.learning_rate,
+                                    momentum=self.momentum,
+                                    weight_decay=self.weight_decay)
         
         net.train()
         # Suppress epoch logging during coarse search
