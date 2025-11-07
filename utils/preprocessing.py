@@ -66,10 +66,28 @@ def downsample_spectrum(data, final_channels=128):
 
 
 def normalize_minmax(data):
-    """Normalize cube values to [0, 1]."""
-    dmin = data.min()
-    dmax = data.max()
-    return (data - dmin) / (dmax - dmin + 1e-8)
+    """
+    Normalize cube values PIXEL-WISE to [0, 1] to focus on spectral shape.
+    This is the method (per-pixel normalization) described in the paper.
+    """
+    # Input shape: (bands, H, W)
+    bands, H, W = data.shape
+    
+    # Reshape to (H*W, bands)
+    flat = data.reshape(bands, -1).T
+    
+    # Calculate min/max per pixel (row-wise)
+    min_vals = flat.min(axis=1, keepdims=True)
+    max_vals = flat.max(axis=1, keepdims=True)
+    
+    # Calculate denominator, adding epsilon for flat spectra (max=min)
+    denom = max_vals - min_vals + 1e-8
+    
+    # Apply normalization
+    norm_flat = (flat - min_vals) / denom
+    
+    # Reshape back to (bands, H, W)
+    return norm_flat.T.reshape(bands, H, W)
 
 
 def convert_to_absorbance(reflectance):

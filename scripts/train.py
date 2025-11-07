@@ -247,10 +247,13 @@ def main(model_name: str):
             )
             class_knn = np.argmax(prob_knn_flat, axis=1).reshape(H, W)
 
+...
             # (3) HKM + Majority Voting (H2NMF-based)
             class_mv = majority_voting(
-                class_knn, pc1=pca_img, cube=cube,
-                n_clusters=HKM_CLUSTERS, use_h2nmf=False
+                class_knn, 
+                pc1=pca_img, # Ignored by new HKM, but cube is used
+                cube=cube,
+                n_clusters=HKM_CLUSTERS
             )
 
             # ---- Metrics (excluding BG) ----
