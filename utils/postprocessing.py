@@ -11,7 +11,7 @@ This version uses a minimal port of the paper's H2NMF/SVD clustering.
 
 import numpy as np
 from sklearn.cluster import KMeans
-from scipy.linalg import svds
+from scipy.linalg import svd
 from sklearn.utils.extmath import svd_flip
 
 # --- Start of HKM Helper Functions (Ported from MATLAB) ---
@@ -32,7 +32,7 @@ def _splitclust(M):
         # Get the 2 largest principal components/vectors
         # M (pixels, bands) -> U(pixels, 2)
         # Using 'arpack' for sparse SVD, similar to MATLAB's svds
-        U, s, Vh = svds(M, k=2, tol=1e-6, solver='arpack')
+        U, s, Vh = svd(M, k=2, tol=1e-6, solver='arpack')
         # Ensure deterministic output
         U, Vh = svd_flip(U, Vh)
         
