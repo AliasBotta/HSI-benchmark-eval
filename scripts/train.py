@@ -228,6 +228,13 @@ def main(model_name: str):
             gt = np.load(d / "gtMap.npy")                # (H,W)
             bands, H, W = cube.shape
 
+            # Check if this Ground Truth map contains any tumor pixels (Label 2)
+            # gtMap labels are 1=NT, 2=TT, 3=BV, 4=BG
+            if not np.any(gt == 2):
+                logger.warning(f"[Fold {k} | PID {pid} | {d.name}] Skipping image: "
+                               f"No tumor (TT) pixels found in Ground Truth.")
+                continue
+
             # --- PCA(1) once per image ---
             pca = PCA(n_components=1)
             pca_img = pca.fit_transform(cube.reshape(bands, -1).T).reshape(H, W)
