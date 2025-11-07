@@ -29,23 +29,27 @@ class DNN1D(nn.Module):
 
         h1, h2 = hidden_dims
 
-        # Hidden layer 1: Linear -> ReLU (no BatchNorm here)
+        # Layer 1: Linear -> ReLU
         layer1 = [
             nn.Linear(input_dim, h1),
             nn.ReLU(inplace=True),
         ]
 
-        # Hidden layer 2: Linear -> BatchNorm -> ReLU
+        # Layer 2: Linear -> ReLU
         layer2 = [
             nn.Linear(h1, h2),
-            nn.BatchNorm1d(h2),
             nn.ReLU(inplace=True),
+        ]
+        
+        # Batch Norm *follows* the two hidden layers, as per paper description
+        bn_layer = [
+            nn.BatchNorm1d(h2)
         ]
 
         # Output layer
         out = [nn.Linear(h2, num_classes)]
 
-        self.net = nn.Sequential(*(layer1 + layer2 + out))
+        self.net = nn.Sequential(*(layer1 + layer2 + bn_layer + out))
 
     def forward(self, x):
         return self.net(x)
