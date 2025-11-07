@@ -21,6 +21,7 @@ from torch.utils.data import TensorDataset, DataLoader
 from . import BaseRunner
 import copy 
 from sklearn.metrics import f1_score
+from torch.optim.lr_scheduler import MultiStepLR
 
 class DNN1D(nn.Module):
     def __init__(self, input_dim=128, num_classes=4, hidden_dims=(256, 256)):
@@ -105,12 +106,21 @@ class DNNRunner(BaseRunner):
         yt = torch.tensor(y_train, dtype=torch.long)
         dl = DataLoader(TensorDataset(Xt, yt), batch_size=self.batch_size, shuffle=True, drop_last=False)
         
-        criterion = nn.CrossEntropyLoss()
+        # Inverse-frequency class weights
+        cls, cnt = np.unique(y_train, return_counts=True)
+        weights = np.zeros(self.num_classes, dtype=np.float32)
+        weights[cls] = 1.0 / (cnt + 1e-8)
+        weights = torch.tensor(weights / (weights.sum() + 1e-8) * len(weights), dtype=torch.float32).to(self.device)
+
+        # Loss and optimizer
+        criterion = nn.CrossEntropyLoss(weight=weights)
 
         optimizer = torch.optim.SGD(net.parameters(),
                                     lr=self.learning_rate,
                                     momentum=self.momentum,
                                     weight_decay=self.weight_decay)
+
+        scheduler = MultiStepLR(optimizer, milestones=[self.epochs // 3, (self.epochs * 2) // 3], gamma=0.1)
         
         net.train()
         # Suppress epoch logging during coarse search
@@ -125,6 +135,7 @@ class DNNRunner(BaseRunner):
                 loss.backward()
                 optimizer.step()
                 # total_loss += loss.item()
+            scheduler.step()
             
             # if (epoch + 1) % print_every == 0 or epoch == 0:
             #     print(f"  [DNNRunner] Epoch {epoch+1}/{self.epochs} | Loss: {total_loss/len(dl):.4f}")
