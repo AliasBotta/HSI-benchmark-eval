@@ -106,14 +106,8 @@ class DNNRunner(BaseRunner):
         yt = torch.tensor(y_train, dtype=torch.long)
         dl = DataLoader(TensorDataset(Xt, yt), batch_size=self.batch_size, shuffle=True, drop_last=False)
         
-        # Inverse-frequency class weights
-        cls, cnt = np.unique(y_train, return_counts=True)
-        weights = np.zeros(self.num_classes, dtype=np.float32)
-        weights[cls] = 1.0 / (cnt + 1e-8)
-        weights = torch.tensor(weights / (weights.sum() + 1e-8) * len(weights), dtype=torch.float32).to(self.device)
-
         # Loss and optimizer
-        criterion = nn.CrossEntropyLoss(weight=weights)
+        criterion = nn.CrossEntropyLoss()
 
         optimizer = torch.optim.SGD(net.parameters(),
                                     lr=self.learning_rate,
