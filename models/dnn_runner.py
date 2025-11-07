@@ -66,7 +66,7 @@ class DNNRunner(BaseRunner):
                  input_dim=128,
                  num_classes=4,
                  # Define the "coarse search" space for L (hidden_dims) as per paper
-                 hidden_dims_search_space=[(128, 128), (256, 256), (512, 512)], # <-- MODIFIED
+                 hidden_dims_search_space=[(32, 32), (32, 64), (64, 32), (64, 64)],
                  learning_rate=0.1,
                  batch_size=512,
                  epochs=300,
