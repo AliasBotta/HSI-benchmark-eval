@@ -11,7 +11,6 @@ on the PCA(1) (or full cube), followed by majority voting within each segment.
 import numpy as np
 from sklearn.cluster import KMeans
 from sklearn.decomposition import PCA
-from .hkm_nmf import h2nmf_segmentation
 
 
 def hierarchical_kmeans(X, target_clusters=24, random_state=0):
