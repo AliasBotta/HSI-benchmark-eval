@@ -247,7 +247,6 @@ def main(model_name: str):
             )
             class_knn = np.argmax(prob_knn_flat, axis=1).reshape(H, W)
 
-...
             # (3) HKM + Majority Voting (H2NMF-based)
             class_mv = majority_voting(
                 class_knn, 
