@@ -128,7 +128,7 @@ def preprocess_hsi_cube(
     remove_bands=(56, 126),
     smoothing_enabled=True,
     smoothing_window=5,
-    absorbance_conversion=True,
+    absorbance_conversion=False,
     normalization="minmax",
     downsampling_enabled=True,
     final_channels=128,
