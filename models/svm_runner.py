@@ -16,7 +16,7 @@ as required by the paper's methodology.
 import numpy as np
 import cupy as cp
 from cuml.svm import SVC
-from cuml.metrics.classification import f1_score
+from sklearn.metrics import f1_score
 from . import BaseRunner # Assumes BaseRunner is in __init__.py
 
 # --- Hyperparameter Grid ---
