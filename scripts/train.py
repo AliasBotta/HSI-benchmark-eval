@@ -293,20 +293,21 @@ def main(model_name: str):
             m_knn = _evaluate_map(gt, class_knn)
             m_mv = _evaluate_map(gt, class_mv)
 
-            row = {
-                "fold": k, "patient": pid,
-                "spectral_f1": m_spec["f1_macro"], "spectral_oa": m_spec["oa"],
-                "spatial_f1": m_knn["f1_macro"], "spatial_oa": m_knn["oa"],
-                "mv_f1": m_mv["f1_macro"], "mv_oa": m_mv["oa"],
-            }
+            # <--- MODIFICA: Salva TUTTE le metriche, non solo f1 e oa
+            row = {"fold": k, "patient": pid}
+            row.update(_flatten_metrics_dict(m_spec, "spectral"))
+            row.update(_flatten_metrics_dict(m_knn, "spatial"))
+            row.update(_flatten_metrics_dict(m_mv, "mv"))
+            # <--- FINE MODIFICA
+
             fold_rows.append(row)
-            logger.info(f"[Fold {k} | PID {pid}] F1: Spec={row['spectral_f1']:.3f} "
-                        f"→ KNN={row['spatial_f1']:.3f} → MV={row['mv_f1']:.3f}")
 
-        # <--- MODIFICA: Salva i risultati del fold
+            # <--- MODIFICA: Aggiornata la chiave per il log
+            logger.info(f"[Fold {k} | PID {pid}] F1: Spec={row['spectral_f1_macro']:.3f} "
+                        f"→ KNN={row['spatial_f1_macro']:.3f} → MV={row['mv_f1_macro']:.3f}")
+            # <--- FINE MODIFICA ---
+
         all_fold_results.append(pd.DataFrame(fold_rows))
-        # <--- FINE MODIFICA ---
-
 
     # <--- MODIFICA: Logica di salvataggio e aggregazione a fine pipeline ---
 
@@ -322,11 +323,11 @@ def main(model_name: str):
 
     # 2. Calcola e salva il sommario
     if not df_all_images.empty:
-        # Calcola la media per fold *prima* di calcolare la media totale
-        summary = df_all_images.groupby("fold")[[
-            "spectral_f1", "spatial_f1", "mv_f1",
-            "spectral_oa", "spatial_oa", "mv_oa"
-        ]].mean()
+        # <--- MODIFICA: Aggiorna l'elenco delle colonne per il summary
+        # Ottieni tutte le colonne tranne 'fold' e 'patient'
+        metric_cols = [col for col in df_all_images.columns if col not in ['fold', 'patient']]
+        summary = df_all_images.groupby("fold")[metric_cols].mean()
+        # <--- FINE MODIFICA ---
 
         summary.loc["mean"] = summary.mean()
         summary.loc["std"] = summary.std()
@@ -337,10 +338,10 @@ def main(model_name: str):
 
         # 3. Identifica e salva il modello mediano
         try:
-            # Usa 'spatial_f1' come metrica per la mediana (allineato con Fig 6b)
-            # Assicurati di prendere solo i fold validi (da 1 a N_FOLDS)
+            # <--- MODIFICA: Usa la chiave corretta
             valid_folds = [f for f in range(1, N_FOLDS + 1) if f in summary.index]
-            fold_scores = summary.loc[valid_folds, "spatial_f1"]
+            fold_scores = summary.loc[valid_folds, "spatial_f1_macro"] # <-- key updated
+            # <--- FINE MODIFICA ---
 
             if not fold_scores.empty:
                 median_score = fold_scores.median()
