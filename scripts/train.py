@@ -20,6 +20,9 @@ import os
 from pathlib import Path
 import numpy as np
 import pandas as pd
+from datetime import datetime
+import joblib
+import torch
 
 from sklearn.decomposition import PCA
 
@@ -38,7 +41,7 @@ from utils.data_reduction import reduce_training_data
 
 SEED = 42
 DEVICE = "cuda"
-OUTPUT_DIR = Path("outputs/default")
+GLOBAL_OUTPUT_DIR = Path("outputs")
 PROCESSED_DIR = Path("data/processed")
 
 # Partition
@@ -163,8 +166,16 @@ def _evaluate_map(gt_map, pred_map):
 
 def main(model_name: str):
     set_seed(SEED)
-    logger = setup_logger("outputs/logs", name=f"train_{model_name}")
-    ensure_dir(OUTPUT_DIR)
+
+    # <--- MODIFICA: Crea una cartella di output unica per questa run ---
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    run_output_dir = GLOBAL_OUTPUT_DIR / f"{model_name}_{timestamp}"
+    ensure_dir(run_output_dir)
+
+    # Salva i log *dentro* la cartella della run
+    logger = setup_logger(run_output_dir, name=f"train_{model_name}")
+    logger.info(f"Run output directory: {run_output_dir}")
+    # <--- FINE MODIFICA ---
 
     processed_dir = PROCESSED_DIR
     instances = _list_processed_instances(processed_dir)
@@ -178,22 +189,29 @@ def main(model_name: str):
                 f"({len(set(_pid_from_name(d.name) for d in instances))} patients).")
     logger.info(f"Starting {N_FOLDS}-fold CV by patient. Model: {model_name}")
 
-    # Get the model runner
-    runner = get_runner(model_name)
+    # <--- MODIFICA: Liste per conservare i runner e i risultati di ogni fold
+    all_fold_runners = []
+    all_fold_results = []
+    # <--- FINE MODIFICA ---
 
-    all_rows = []
     for k, (train_p, val_p, test_p) in enumerate(folds, start=1):
         logger.info(f"Fold {k}: train={len(train_p)}, val={len(val_p)}, test={len(test_p)}")
 
+        # <--- MODIFICA: Istanzia un nuovo runner per ogni fold
+        runner = get_runner(model_name)
+        # <--- FINE MODIFICA ---
+
         # 1) Training & Validation pixels
         Xtr_raw, ytr_raw = _gather_training_pixels(processed_dir, instances, set(train_p))
-        Xval_raw, yval_raw = _gather_training_pixels(processed_dir, instances, set(val_p)) # <-- MODIFIED
-        
-        logger.info(f"[Fold {k}] Training pixels (raw): {len(ytr_raw)}")
-        logger.info(f"[Fold {k}] Validation pixels (raw): {len(yval_raw)}") # <-- ADDED
+        Xval_raw, yval_raw = _gather_training_pixels(processed_dir, instances, set(val_p))
 
-        if Xtr_raw.size == 0 or Xval_raw.size == 0: # <-- MODIFIED
-            logger.warning(f"[Fold {k}] Empty training or validation set. Skipping this fold.") # <-- MODIFIED
+        logger.info(f"[Fold {k}] Training pixels (raw): {len(ytr_raw)}")
+        logger.info(f"[Fold {k}] Validation pixels (raw): {len(yval_raw)}")
+
+        if Xtr_raw.size == 0 or Xval_raw.size == 0:
+            logger.warning(f"[Fold {k}] Empty training or validation set. Skipping this fold.")
+            all_fold_runners.append(None) # Aggiungi un placeholder
+            all_fold_results.append(pd.DataFrame()) # Aggiungi df vuoto
             continue
 
         # --- Class distribution (raw) ---
@@ -209,10 +227,10 @@ def main(model_name: str):
             random_seed=SEED
         )
         # Use the un-reduced validation set for tuning
-        Xval, yval = Xval_raw, yval_raw # <-- ADDED
+        Xval, yval = Xval_raw, yval_raw
 
         logger.info(f"[Fold {k}] Reduced training pixels: {len(ytr)}")
-        
+
         # --- distribution after reduction ---
         cls_r, cnt_r = np.unique(ytr, return_counts=True)
         logger.info(f"[Fold {k}] Reduced class distribution: {dict(zip(cls_r, cnt_r))}")
@@ -220,6 +238,10 @@ def main(model_name: str):
         # 3) Train model (now includes optimization on val set)
         runner.fit(Xtr, ytr, Xval, yval) # <-- MODIFIED SIGNATURE
         logger.info(f"[Fold {k}] Model training complete")
+
+        # <--- MODIFICA: Salva il runner addestrato di questo fold
+        all_fold_runners.append(runner)
+        # <--- FINE MODIFICA ---
 
         # 4) Inference + post-processing
         fold_rows = []
@@ -229,7 +251,7 @@ def main(model_name: str):
                 continue
 
             cube = np.load(d / "preprocessed_cube.npy")  # (bands,H,W)
-            gt = np.load(d / "gtMap.npy")                # (H,W)
+            gt = np.load(d / "gtMap.npy")              # (H,W)
             bands, H, W = cube.shape
 
             # Check if this Ground Truth map contains any tumor pixels (Label 2)
@@ -260,7 +282,7 @@ def main(model_name: str):
 
             # (3) HKM + Majority Voting (H2NMF-based)
             class_mv = majority_voting(
-                class_knn, 
+                class_knn,
                 pc1=pca_img, # Ignored by new HKM, but cube is used
                 cube=cube,
                 n_clusters=HKM_CLUSTERS
@@ -281,24 +303,76 @@ def main(model_name: str):
             logger.info(f"[Fold {k} | PID {pid}] F1: Spec={row['spectral_f1']:.3f} "
                         f"→ KNN={row['spatial_f1']:.3f} → MV={row['mv_f1']:.3f}")
 
-        all_rows.extend(fold_rows)
+        # <--- MODIFICA: Salva i risultati del fold
+        all_fold_results.append(pd.DataFrame(fold_rows))
+        # <--- FINE MODIFICA ---
 
-    # Results summary
-    df = pd.DataFrame(all_rows)
-    out_dir = OUTPUT_DIR
-    df.to_csv(out_dir / "metrics_per_patient.csv", index=False)
 
-    if not df.empty:
-        summary = df.groupby("fold")[[
+    # <--- MODIFICA: Logica di salvataggio e aggregazione a fine pipeline ---
+
+    if not all_fold_results:
+        logger.warning("No results were generated. Exiting.")
+        return
+
+    # 1. Salva i dati raw (metriche per paziente/immagine)
+    df_all_images = pd.concat(all_fold_results)
+    raw_metrics_path = run_output_dir / "metrics_per_patient.csv"
+    df_all_images.to_csv(raw_metrics_path, index=False)
+    logger.info(f"📊 Saved raw per-image metrics → {raw_metrics_path}")
+
+    # 2. Calcola e salva il sommario
+    if not df_all_images.empty:
+        # Calcola la media per fold *prima* di calcolare la media totale
+        summary = df_all_images.groupby("fold")[[
             "spectral_f1", "spatial_f1", "mv_f1",
             "spectral_oa", "spatial_oa", "mv_oa"
         ]].mean()
+
         summary.loc["mean"] = summary.mean()
         summary.loc["std"] = summary.std()
-        summary.to_csv(out_dir / "metrics_summary.csv")
-        logger.info(f"📊 Saved → {out_dir/'metrics_summary.csv'}")
 
-    logger.info("✅ Pipeline completed.")
+        summary_path = run_output_dir / "metrics_summary.csv"
+        summary.to_csv(summary_path)
+        logger.info(f"📊 Saved fold summary → {summary_path}")
+
+        # 3. Identifica e salva il modello mediano
+        try:
+            # Usa 'spatial_f1' come metrica per la mediana (allineato con Fig 6b)
+            # Assicurati di prendere solo i fold validi (da 1 a N_FOLDS)
+            valid_folds = [f for f in range(1, N_FOLDS + 1) if f in summary.index]
+            fold_scores = summary.loc[valid_folds, "spatial_f1"]
+
+            if not fold_scores.empty:
+                median_score = fold_scores.median()
+
+                # Trova l'indice (basato su 1) del fold più vicino alla mediana
+                median_fold_num = (fold_scores - median_score).abs().idxmin() # e.g., 3
+                median_fold_idx = median_fold_num - 1 # e.g., 2 (per lista 0-based)
+
+                median_runner = all_fold_runners[median_fold_idx]
+
+                if median_runner is not None:
+                    logger.info(f"Median fold identified: Fold {median_fold_num} (Score: {fold_scores.loc[median_fold_num]:.4f}, Median: {median_score:.4f})")
+
+                    # Salva il modello
+                    if model_name == "dnn":
+                        model_path = run_output_dir / "median_model.pth"
+                        torch.save(median_runner.net.state_dict(), model_path)
+                    else:
+                        model_path = run_output_dir / "median_model.joblib"
+                        joblib.dump(median_runner, model_path)
+
+                    logger.info(f"✅ Saved median model → {model_path}")
+                else:
+                    logger.warning(f"Median fold ({median_fold_num}) was skipped, cannot save model.")
+            else:
+                 logger.warning("No valid fold scores found, cannot determine median model.")
+
+        except Exception as e:
+            logger.error(f"❌ Failed to save median model: {e}")
+
+    logger.info(f"✅ Pipeline completed. Outputs in {run_output_dir}")
+    # <--- FINE MODIFICA ---
 
 
 # ============================================================
