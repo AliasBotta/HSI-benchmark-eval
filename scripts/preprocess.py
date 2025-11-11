@@ -4,7 +4,7 @@ preprocess.py
 Preprocess all HSI dataset instances according to the benchmark pipeline.
 
 Usage:
-    python preprocess.py
+    python3 -m scripts.preprocess
 """
 
 from pathlib import Path
@@ -13,11 +13,6 @@ import numpy as np
 from utils.data_loading import list_all_instances, load_dataset_instance
 from utils.preprocessing import preprocess_hsi_cube
 from utils.helpers import ensure_dir, setup_logger
-
-
-# ============================================================
-# Preprocessing Parameters (replacing YAML config)
-# ============================================================
 
 # Input/output directories
 ROOT_DIR = Path("data/hsi_dataset")       # raw dataset root
@@ -33,17 +28,13 @@ GT_MAP_NAME = "gtMap"
 REMOVE_BANDS_START = 56
 REMOVE_BANDS_END = 126
 SMOOTHING_ENABLED = True
-SMOOTHING_WINDOW = 5
-ABSORBANCE_CONVERSION = False
+SMOOTHING_WINDOW = 5 #convolution window
+ABSORBANCE_CONVERSION = False # I was wrong, the absorbance_conversion was not in the preprocessing pipeline
 NORMALIZATION = "minmax"
 DOWNSAMPLING_ENABLED = True
 FINAL_CHANNELS = 128
-STEP_NM = 3.61
+STEP_NM = 3.61 #part of the  final downsampling
 
-
-# ============================================================
-# Save Utilities
-# ============================================================
 
 def save_preprocessed_cube(out_dir, cube, gt=None):
     """Save the preprocessed cube (and optionally GT) as NumPy .npy files."""
@@ -52,11 +43,6 @@ def save_preprocessed_cube(out_dir, cube, gt=None):
     if gt is not None:
         np.save(Path(out_dir) / "gtMap.npy", gt)
     print(f"[INFO] Saved preprocessed cube → {out_dir}")
-
-
-# ============================================================
-# Main Preprocessing Routine
-# ============================================================
 
 def main():
     logger = setup_logger("outputs/logs", name="preprocess")
@@ -102,11 +88,6 @@ def main():
         logger.info(f"Saved preprocessed cube to {out_dir}")
 
     logger.info("✅ Preprocessing completed for all instances.")
-
-
-# ============================================================
-# Entry Point
-# ============================================================
 
 if __name__ == "__main__":
     main()

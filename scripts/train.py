@@ -9,6 +9,10 @@ Modular by model: --model {dnn, svm-l, svm-rbf, knn-e, rf, ebeae, nebeae}
 Each model is implemented in models/<model>.py and must return:
   - class_map: (H, W)  with labels 0..3 (TT, NT, BV, BG)
   - prob_all : (H, W, 4) class probabilities (order: [TT, NT, BV, BG])
+
+
+Usage:
+    python3 -m scripts.train --model model_name
 """
 
 import argparse

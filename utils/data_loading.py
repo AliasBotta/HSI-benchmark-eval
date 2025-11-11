@@ -10,11 +10,6 @@ from pathlib import Path
 import numpy as np
 import spectral
 
-
-# ============================================================
-# ENVI Readers
-# ============================================================
-
 def load_envi_image(base_path):
     """
     Load an ENVI image given its base path (without .hdr extension).
@@ -113,12 +108,6 @@ def load_dataset_instance(instance_dir,
     data["gt"] = gt
     return data
 
-
-
-# ============================================================
-# Directory Utilities
-# ============================================================
-
 def list_all_instances(root_dir):
     """
     Recursively list all valid dataset instances under multiple campaigns.
@@ -160,11 +149,6 @@ def load_instance_paths(instance_dir):
         "gt_hdr": d / "gtMap.hdr",
     }
     return paths
-
-
-# ============================================================
-# Saving Utilities
-# ============================================================
 
 def save_numpy_arrays(out_dir, cube, gt_map):
     """

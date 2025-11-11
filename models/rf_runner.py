@@ -7,7 +7,7 @@ pixel-wise classification.
 
 [cite_start]This version is compliant with the benchmark paper[cite: 6].
 It implements hyperparameter optimization in the .fit() method
-[cite_start]to find the optimal number of trees ($T$)[cite: 925].
+[cite_start]to find the optimal number of trees (T)[cite: 925].
 """
 
 import numpy as np
@@ -20,7 +20,7 @@ class RFRunner(BaseRunner):
     """
     [cite_start]Random Forest classifier runner, compliant with[cite: 6].
 
-    Implements hyperparameter optimization for n_estimators ($T$) using
+    Implements hyperparameter optimization for n_estimators (T) using
     [cite_start]the validation set, as required by the paper's methodology[cite: 945, 949].
     """
 
@@ -36,7 +36,7 @@ class RFRunner(BaseRunner):
         max_depth : int, optional
             Fixed max_depth for all trees. Default is None.
         n_trees_search_space : list of int
-            [cite_start]List of $T$ (n_estimators) values to test during optimization[cite: 925].
+            [cite_start]List of T (n_estimators) values to test during optimization[cite: 925].
         random_state : int
             Random state for reproducibility.
         """
@@ -60,7 +60,7 @@ class RFRunner(BaseRunner):
         Fit the Random Forest model.
 
         If validation data (X_val, y_val) is provided, this method performs
-        a hyperparameter search to find the optimal number of trees ($T$)
+        a hyperparameter search to find the optimal number of trees (T)
         [cite_start]by evaluating the Macro F1-Score on the validation set[cite: 925, 949].
         """
         if X_train.size == 0:
@@ -83,7 +83,7 @@ class RFRunner(BaseRunner):
 
         # [cite_start]--- Paper-Compliant Hyperparameter Optimization [cite: 949] ---
         print(f"[RFRunner] Optimizing T (n_estimators) on validation set.")
-        print(f"       Search space: {self.n_trees_search_space}")
+        print(f"         Search space: {self.n_trees_search_space}")
 
         best_model = None
         best_score = -1.0
@@ -143,15 +143,22 @@ class RFRunner(BaseRunner):
             raise RuntimeError("[RFRunner] ❌ Model not trained. Call .fit() first.")
 
         bands, H, W = cube.shape
-        flat = cube.reshape(bands, -1).T
+
+        # Reshape (bands, H, W) -> (bands, H*W) -> (H*W, bands)
+        flat_pixels = cube.reshape(bands, -1).T
 
         print(f"[RFRunner] Predicting on cube ({bands} bands, {H}×{W} spatial).")
-        proba = self.clf.predict_proba(flat)  # (H*W, num_classes)
 
-        # Ensure classes are aligned
+        # Get (H*W, num_classes) probabilities
+        proba = self.clf.predict_proba(flat_pixels)
+
+        # Get (H*W) class predictions
+        # We use .classes_ to map argmax indices to the original label values (e.g., 0, 1, 2, 3)
+        class_preds_flat = self.clf.classes_[np.argmax(proba, axis=1)]
+
+        # Reshape back to spatial dimensions
         num_classes = proba.shape[1]
-
-        class_map = np.argmax(proba, axis=1).reshape(H, W)
+        class_map = class_preds_flat.reshape(H, W)
         prob_all = proba.reshape(H, W, num_classes)
 
         print("[RFRunner] ✅ Prediction complete.")

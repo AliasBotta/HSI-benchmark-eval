@@ -32,7 +32,7 @@ def smooth_spectral(data, window_size=5):
     """
     if window_size < 2:
         return data
-    return uniform_filter1d(data, size=window_size, axis=0, mode="nearest")
+    return uniform_filter1d(data, size=window_size, axis=0, mode="nearest") #1d convolution
 
 
 def remove_noisy_channels(data, start, end):
@@ -138,7 +138,7 @@ def preprocess_hsi_cube(
       1. Radiometric calibration
       2. Smoothing (optional)
       3. Remove noisy bands
-      4. Convert to absorbance (optional)
+      4. Convert to absorbance (optional) (not used)
       5. Spectral downsampling (optional)
       6. Normalization
     Returns:
