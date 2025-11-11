@@ -159,6 +159,13 @@ def _evaluate_map(gt_map, pred_map):
     pr_eval = np.where(pr > 2, -1, pr)
     return compute_all_metrics(gt, pr_eval, num_classes=3, labels=[0, 1, 2])
 
+def _flatten_metrics_dict(m_dict, prefix):
+    """Flatten metrics dictionary and add a prefix."""
+    row = {}
+    for k, v in m_dict.items():
+        new_key = f"{prefix}_{k}"
+        row[new_key] = v
+    return row
 
 # ============================================================
 # Main Pipeline
