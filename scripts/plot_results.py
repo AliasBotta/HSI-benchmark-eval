@@ -138,46 +138,55 @@ def plot_fig6b_bars(summary_data: pd.DataFrame, save_path: Path):
     Usa solo la pipeline 'Spatial/Spectral'.
     """
     print("[Plotter] Generazione Fig. 6b (Bar Plot Metriche)...")
-    
+
     # 1. Filtra i dati 'mean' e 'std'
     if 'mean' not in summary_data.index or 'std' not in summary_data.index:
         print("[Plotter] ❌ Dati 'mean' o 'std' non trovati. Impossibile generare Fig. 6b.")
         return
-        
-    df_mean = summary_data.loc['mean']
-    df_std = summary_data.loc['std']
-    df_mean['model'] = summary_data.loc['mean', 'model']
-    df_std['model'] = summary_data.loc['std', 'model']
+
+    # <--- MODIFICA: Seleziona le righe 'mean' e 'std' MANTENENDOLE COME DATAFRAME
+    # Usiamo doppie parentesi [[]] per ottenere un DataFrame e .copy() per evitare i warning.
+    df_mean_full = summary_data.loc[['mean']].copy()
+    df_std_full = summary_data.loc[['std']].copy()
+    # <--- FINE MODIFICA
 
     # 2. Definisci le metriche e rinominale
-    # NOTA: Il tuo script al momento calcola solo NT, TT, BV (classi 0, 1, 2)
     metrics_map = {
         'spatial_oa': 'OA',
         'spatial_sens_class_0': 'Sens (NT)',
         'spatial_sens_class_1': 'Sens (TT)',
         'spatial_sens_class_2': 'Sens (BV)',
+        # Aggiungi BG se lo calcoli, altrimenti lascialo così
+        # 'spatial_sens_class_3': 'Sens (BG)',
         'spatial_spec_class_0': 'Spec (NT)',
         'spatial_spec_class_1': 'Spec (TT)',
         'spatial_spec_class_2': 'Spec (BV)',
+        # 'spatial_spec_class_3': 'Spec (BG)',
     }
-    
-    # Controlla se le colonne esistono (in caso di run parziali)
-    cols_to_plot = [col for col in metrics_map.keys() if col in df_mean.columns]
+
+    # <--- MODIFICA: Ora controlliamo .columns sul DataFrame, che è corretto
+    cols_to_plot = [col for col in metrics_map.keys() if col in df_mean_full.columns]
+
     if not cols_to_plot:
         print("[Plotter] ❌ Nessuna metrica 'spatial' (oa/sens/spec) trovata. Impossibile generare Fig. 6b.")
         return
 
-    df_mean_plot = df_mean[['model'] + cols_to_plot]
-    df_std_plot = df_std[['model'] + cols_to_plot]
+    # Seleziona solo le colonne che ci servono
+    df_mean = df_mean_full[['model'] + cols_to_plot]
+    df_std = df_std_full[['model'] + cols_to_plot]
+    # <--- FINE MODIFICA
 
-    # 3. Melt per Seaborn
-    df_mean_melted = df_mean_plot.melt(id_vars='model', var_name='Metric', value_name='Mean')
-    df_std_melted = df_std_plot.melt(id_vars='model', var_name='Metric', value_name='Std')
-    
+    # 3. Melt per Seaborn (Questo ora funziona)
+    df_mean_melted = df_mean.melt(id_vars='model', var_name='Metric', value_name='Mean')
+    df_std_melted = df_std.melt(id_vars='model', var_name='Metric', value_name='Std')
+
     # Unisci mean e std
     df_plot = pd.merge(df_mean_melted, df_std_melted, on=['model', 'Metric'])
     df_plot['Metric'] = df_plot['Metric'].map(metrics_map)
-    
+
+    # Filtra eventuali metriche non mappate (es. BG se non l'abbiamo incluso)
+    df_plot = df_plot.dropna(subset=['Metric'])
+
     # 4. Crea il plot (usando catplot per griglie)
     g = sns.catplot(
         data=df_plot,
@@ -189,19 +198,30 @@ def plot_fig6b_bars(summary_data: pd.DataFrame, save_path: Path):
         palette='viridis',
         col_wrap=4, # 4 grafici per riga
         height=4,
-        aspect=1.2
+        aspect=1.2,
+        sharey=False # Permetti assi Y diversi se necessario
     )
-    
+
     g.fig.suptitle("Fig. 6b (Replica): Metriche 'Spatial/Spectral' (Media 5 Folds)", y=1.03, fontsize=16)
     g.set_axis_labels("Classifier", "Mean Value")
     g.set_xticklabels(rotation=45)
-    g.set(ylim=(0, 1.1))
+
+    # Imposta Y-lim per tutte le assi
+    for ax in g.axes.flatten():
+        ax.set_ylim(0, 1.1)
+        ax.grid(axis='y', linestyle='--', alpha=0.7)
 
     # Aggiungi le barre d'errore (catplot non lo fa facilmente con 'yerr')
-    for ax, (_, sub_df) in zip(g.axes.flatten(), df_plot.groupby('Metric')):
+    # NOTA: questo è un po' complesso, ma necessario per catplot
+    metric_order = [m for m in metrics_map.values() if m in df_plot['Metric'].unique()]
+
+    for i, metric in enumerate(metric_order):
+        ax = g.axes.flatten()[i]
+        sub_df = df_plot[df_plot['Metric'] == metric]
+
         # Ordina il sub_df per matchare l'ordine del grafico
-        sub_df = sub_df.set_index('model').loc[MODEL_ORDER].reset_index()
-        
+        sub_df = sub_df.set_index('model').reindex(MODEL_ORDER).reset_index()
+
         ax.errorbar(
             x=sub_df['model'],
             y=sub_df['Mean'],
