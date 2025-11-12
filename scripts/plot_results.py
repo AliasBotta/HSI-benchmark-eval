@@ -8,7 +8,7 @@ Logic:
 2. For each model, find the MOST RECENT run folder (based on timestamp).
 3. Load the summary data (the 5 fold rows + 'mean'/'std').
 4. Generate the F1 boxplot (Fig. 6a) from the 5-fold data.
-5. Generate the bar plot (Fig. 6b) from the 'mean' and 'std' data.
+5. Generate the grouped bar plot (Fig. 6b) from the 5-fold data.
 6. Save the charts to the 'figures/' directory.
 
 Ensure seaborn is installed: pip install seaborn
@@ -135,12 +135,12 @@ def plot_fig6a_f1_boxplot(summary_data: pd.DataFrame, save_path: Path):
         print("[Plotter] ❌ No F1-Score columns found (e.g., 'spatial_f1_macro'). Cannot generate Fig. 6a.")
         return
 
-    df_f1 = df_folds[['model'] + cols_to_plot]
+    df_f1 = df_folds[['model'] + list(set(cols_to_plot))] # Use set() to avoid duplicates
 
     # 3. "Melt" the DataFrame for Seaborn
     df_melted = df_f1.melt(
         id_vars=['model'],
-        value_vars=cols_to_plot,
+        value_vars=list(set(cols_to_plot)),
         var_name='Pipeline',
         value_name='Macro F1-Score'
     )
@@ -155,7 +155,8 @@ def plot_fig6a_f1_boxplot(summary_data: pd.DataFrame, save_path: Path):
         y='Macro F1-Score',
         hue='Pipeline',
         order=MODEL_ORDER, # Apply correct order
-        palette="muted" # Palette similar to paper
+        palette="muted", # Palette similar to paper
+        notch=True       # <--- MODIFICATION: This adds the notches
     )
 
     plt.title("Fig. 6a (Replica): Macro F1-Score (Test Set, 5 Folds)", fontsize=16)
@@ -172,103 +173,93 @@ def plot_fig6a_f1_boxplot(summary_data: pd.DataFrame, save_path: Path):
 
 def plot_fig6b_bars(summary_data: pd.DataFrame, save_path: Path):
     """
-    Generates the bar plot for OA, Sensitivity, Specificity (like Fig. 6b).
-    Uses only the 'Spatial/Spectral' pipeline.
+    Generates the grouped bar plot for OA, Sensitivity, Specificity (like Fig. 6b).
+    Uses only the 'Spatial/Spectral' pipeline data from the 5 folds.
     """
-    print("[Plotter] Generating Fig. 6b (Metrics Bar Plot)...")
+    print("[Plotter] Generating Fig. 6b (Grouped Metrics Bar Plot)...")
 
-    # 1. Filter 'mean' and 'std' data
-    if 'mean' not in summary_data.index or 'std' not in summary_data.index:
-        print("[Plotter] ❌ 'mean' or 'std' rows not found. Cannot generate Fig. 6b.")
+    # 1. Filter only the 5-fold data (exclude 'mean' and 'std')
+    fold_indices = [str(i) for i in range(1, 6)] + [i for i in range(1, 6)]
+    df_folds = summary_data[summary_data.index.isin(fold_indices)].copy()
+
+    if df_folds.empty:
+        print("[Plotter] ❌ Fold data not found. Cannot generate Fig. 6b.")
         return
 
-    # Use [[]] to select as DataFrame and .copy() to avoid warnings
-    df_mean_full = summary_data.loc[['mean']].copy()
-    df_std_full = summary_data.loc[['std']].copy()
-
-    # 2. Define and map metrics
+    # 2. Define metrics to plot
+    # We only use the 'spatial' pipeline results
     metrics_map = {
         'spatial_oa': 'OA',
         'spatial_sens_class_0': 'Sens (NT)',
         'spatial_sens_class_1': 'Sens (TT)',
         'spatial_sens_class_2': 'Sens (BV)',
-        # 'spatial_sens_class_3': 'Sens (BG)', # Add if you evaluate BG
         'spatial_spec_class_0': 'Spec (NT)',
         'spatial_spec_class_1': 'Spec (TT)',
         'spatial_spec_class_2': 'Spec (BV)',
-        # 'spatial_spec_class_3': 'Spec (BG)', # Add if you evaluate BG
     }
+    # Define the order for the X-axis
+    metric_order = [
+        'OA', 'Sens (NT)', 'Sens (TT)', 'Sens (BV)',
+        'Spec (NT)', 'Spec (TT)', 'Spec (BV)'
+    ]
 
-    # Check which columns are actually available
-    cols_to_plot = [col for col in metrics_map.keys() if col in df_mean_full.columns]
-
+    # 3. Check which columns are available
+    cols_to_plot = [col for col in metrics_map.keys() if col in df_folds.columns]
     if not cols_to_plot:
         print("[Plotter] ❌ No 'spatial' (oa/sens/spec) metrics found. Cannot generate Fig. 6b.")
-        print("   (Did you run train.py *after* modifying it to save all metrics?)")
+        print("    (Did you run train.py *after* modifying it to save all metrics?)")
         return
 
-    # Select only the columns we need
-    df_mean = df_mean_full[['model'] + cols_to_plot]
-    df_std = df_std_full[['model'] + cols_to_plot]
+    df_metrics = df_folds[['model'] + cols_to_plot]
 
-    # 3. Melt for Seaborn
-    df_mean_melted = df_mean.melt(id_vars='model', var_name='Metric', value_name='Mean')
-    df_std_melted = df_std.melt(id_vars='model', var_name='Metric', value_name='Std')
+    # 4. "Melt" the DataFrame for Seaborn
+    df_melted = df_metrics.melt(
+        id_vars=['model'],
+        value_vars=cols_to_plot,
+        var_name='Metric',
+        value_name='Value'
+    )
+    df_melted['Metric'] = df_melted['Metric'].map(metrics_map)
+    df_melted = df_melted.dropna(subset=['Metric'])
 
-    # Merge mean and std
-    df_plot = pd.merge(df_mean_melted, df_std_melted, on=['model', 'Metric'])
-    df_plot['Metric'] = df_plot['Metric'].map(metrics_map)
-
-    # Filter out any metrics not in our map (e.g., BG if we skipped it)
-    df_plot = df_plot.dropna(subset=['Metric'])
-
-    # 4. Create the plot (using catplot for facets)
+    # 5. Create the plot
+    # Use catplot (kind='bar') as it handles grouping and error bars ('sd') correctly
     g = sns.catplot(
-        data=df_plot,
-        x='model',
-        y='Mean',
-        col='Metric',
+        data=df_melted,
+        x='Metric',           # Metrics on X-axis
+        y='Value',            # Value on Y-axis
+        hue='model',          # Model as color
         kind='bar',
-        order=MODEL_ORDER,
-        palette='viridis',
-        col_wrap=4, # 4 charts per row
-        height=4,
-        aspect=1.2,
-        sharey=False # Allow different y-axes if needed
+        order=metric_order,   # Use defined metric order
+        hue_order=MODEL_ORDER,# Use defined model order
+        palette='deep',       # Palette similar to paper
+        errorbar='sd',        # Use 'sd' for standard deviation error bars
+        legend=True,          # Let Seaborn create the legend
+        height=7,
+        aspect=2.5
     )
 
-    g.fig.suptitle("Fig. 6b (Replica): 'Spatial/Spectral' Metrics (5-Fold Mean)", y=1.03, fontsize=16)
-    g.set_axis_labels("Classifier", "Mean Value")
-    g.set_xticklabels(rotation=45)
+    g.set_axis_labels("Metric", "Mean Value")
+    g.set_xticklabels(rotation=0)
+    g.set(ylim=(0, 1.1))
 
-    # Set Y-lim and grid for all axes
-    for ax in g.axes.flatten():
-        ax.set_ylim(0, 1.1)
-        ax.grid(axis='y', linestyle='--', alpha=0.7)
+    # Add grid to the axes
+    g.ax.grid(axis='y', linestyle='--', alpha=0.7)
 
-    # Add error bars
-    metric_order = [m for m in metrics_map.values() if m in df_plot['Metric'].unique()]
+    # Use sns.move_legend() to move the legend
+    sns.move_legend(
+        g,
+        loc='upper center',
+        bbox_to_anchor=(0.5, 1.15), # Position it above the title
+        ncol=8,
+        title='Classifier',
+        frameon=True
+    )
 
-    for i, metric in enumerate(metric_order):
-        ax = g.axes.flatten()[i]
-        sub_df = df_plot[df_plot['Metric'] == metric]
-
-        # Sort the sub-dataframe to match the plot's x-axis order
-        sub_df = sub_df.set_index('model').reindex(MODEL_ORDER).reset_index()
-
-        ax.errorbar(
-            x=sub_df['model'],
-            y=sub_df['Mean'],
-            yerr=sub_df['Std'],
-            fmt='none',
-            capsize=5,
-            color='black'
-        )
-
-    # 5. Save the file
-    plt.tight_layout(rect=[0, 0.03, 1, 0.97])
-    plt.savefig(save_path)
-    plt.close()
+    # 6. Save the file
+    # Use g.fig.savefig() to ensure the moved legend is included
+    g.fig.savefig(save_path, bbox_inches='tight')
+    plt.close('all') # Close all figures
     print(f"[Plotter] ✅ Figure saved to: {save_path}")
 
 

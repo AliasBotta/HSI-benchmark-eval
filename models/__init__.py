@@ -72,6 +72,9 @@ def get_runner(model_name: str) -> BaseRunner:
     if name in {"knn-e", "knn_e"}:
         from .knn_runner import KNNRunner
         return KNNRunner(metric="euclidean")
+    if name in {"knn-c", "knn_c"}:
+        from .knn_runner import KNNRunner
+        return KNNRunner(metric="cosine")
     if name in {"rf", "random_forest"}:
         from .rf_runner import RFRunner
         return RFRunner()

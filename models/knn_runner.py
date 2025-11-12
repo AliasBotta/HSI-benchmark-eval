@@ -1,68 +1,113 @@
 # models/knn_runner.py
 """
-KNNRunner
+KNNRunner (Paper Compliant)
 ---------
-Implements a pixel-wise K-Nearest Neighbors classifier for
-hyperspectral image classification.
+Implements KNN classifier with a grid search for hyperparameter
+optimization on the validation set, as required by the paper.
 
-Supports probability outputs and can be used as a baseline
-supervised model in the benchmark pipeline.
+The paper specifies 'N' (n_neighbors) is the hyperparameter
+to be optimized.
 """
 
 import numpy as np
 from sklearn.neighbors import KNeighborsClassifier
+from sklearn.metrics import f1_score
 from . import BaseRunner
+
+# Define the "coarse search" grid as per the paper's methodology [cite: 949]
+# The paper optimizes 'N'. This is a sensible default range.
+PARAM_GRID_KNN = {
+    'n_neighbors': [1, 3, 5, 7, 11, 15]
+}
+
+# The paper excludes BG class from Macro F1-Score [cite: 976]
+# Assuming 0=NT, 1=TT, 2=BV, 3=BG
+# Adjust this if your class labels are different
+METRIC_LABELS = [0, 1, 2]
 
 
 class KNNRunner(BaseRunner):
     """
-    KNN classifier runner.
-
-    Methods:
-        - fit(X, y)
-        - predict_full(cube)
+    KNN classifier runner with hyperparameter optimization.
     """
-
-    def __init__(self,
-                 n_neighbors=5,
-                 metric="euclidean",
-                 num_classes=4):
-        self.name = f"knn-{ 'e' if metric == 'euclidean' else 'c' }"
-        self.n_neighbors = n_neighbors
+    def __init__(self, metric="euclidean", num_classes=4):
+        self.name = f"knn-{'e' if metric == 'euclidean' else 'c'}"
         self.metric = metric
         self.num_classes = num_classes
-        self.clf = KNeighborsClassifier(n_neighbors=n_neighbors, metric=metric)
+        self.clf = None  # This will be set during fit()
 
     # ------------------------------------------------------------
-    # Training
+    # Training (with Hyperparameter Optimization)
     # ------------------------------------------------------------
-    def fit(self, X, y):
-        """Fit the KNN model on spectral data."""
-        if X.size == 0:
-            print("[KNNRunner] ⚠ Empty training data, skipping training.")
+    def fit(self, X_train, y_train, X_val, y_val): # <-- CORRECTED SIGNATURE
+        """
+        Fit the KNN model.
+        Performs a grid search on the validation set to find the best
+        n_neighbors, as required by the paper[cite: 927, 945].
+        """
+        if X_train.size == 0:
+            print("[KNNRunner] ⚠ Empty training set, skipping training.")
             return
-        print(f"[KNNRunner] Training with {len(y)} samples, K={self.n_neighbors}, metric={self.metric}.")
-        self.clf.fit(X, y)
+
+        print(f"[KNNRunner] Starting hyperparameter search (metric={self.metric})...")
+
+        param_grid = [{"n_neighbors": n} for n in PARAM_GRID_KNN['n_neighbors']]
+
+        best_score = -1.0
+        best_params = {}
+        best_model = None
+
+        for params in param_grid:
+            # Create the model instance inside the loop
+            model = KNeighborsClassifier(
+                n_neighbors=params['n_neighbors'],
+                metric=self.metric,
+                n_jobs=-1  # Use all cores for speed
+            )
+
+            # Train on the training set
+            model.fit(X_train, y_train)
+
+            # Evaluate on the validation set
+            if X_val is not None and y_val is not None:
+                preds_val = model.predict(X_val)
+
+                # Calculate Macro F1-Score *excluding BG class* [cite: 976]
+                score = f1_score(
+                    y_val,
+                    preds_val,
+                    labels=METRIC_LABELS,
+                    average="macro",
+                    zero_division=0.0
+                )
+
+                if score > best_score:
+                    best_score = score
+                    best_params = params
+                    best_model = model
+            else:
+                # If no validation set, just use the first param set
+                # This is NOT paper compliant, but prevents crashing
+                best_model = model
+                best_params = params
+                print("[KNNRunner] ⚠ No validation set provided. Using default params.")
+                break
+
+        self.clf = best_model
+        print(f"[KNNRunner] ✅ Training complete.")
+        print(f"  -> Best Score (Val Macro F1): {best_score:.4f}")
+        print(f"  -> Best Params: {best_params}")
 
     # ------------------------------------------------------------
-    # Prediction
+    # Prediction (No changes needed here)
     # ------------------------------------------------------------
     def predict_full(self, cube):
         """
         Predict pixel-wise classes and probabilities for a full HSI cube.
-
-        Parameters
-        ----------
-        cube : np.ndarray
-            (bands, H, W) preprocessed HSI cube.
-
-        Returns
-        -------
-        class_map : np.ndarray
-            (H, W) predicted labels (0..num_classes-1)
-        prob_all : np.ndarray
-            (H, W, num_classes) probability scores
         """
+        if self.clf is None:
+            raise RuntimeError("[KNNRunner] ❌ Model is not trained. Call fit() first.")
+
         bands, H, W = cube.shape
         flat = cube.reshape(bands, -1).T
 
