@@ -9,9 +9,6 @@ from pathlib import Path
 import numpy as np
 
 
-# ============================================================
-# K-Fold Split (config-free)
-# ============================================================
 
 def make_kfold_splits(
     X,
@@ -47,7 +44,6 @@ def make_kfold_splits(
     n_val   = int(split[1] * n_total)
     n_test  = max(1, n_total - n_train - n_val)
 
-    # 5 folds => rotate test set position across splits
     fold_size = max(1, n_test)
 
     for fold_idx in range(folds):
@@ -74,9 +70,6 @@ def make_kfold_splits(
         yield fold_idx, select(train_pids), select(val_pids), select(test_pids)
 
 
-# ============================================================
-# Patch Extraction
-# ============================================================
 
 def extract_patches(X_cube, gt, patch_size=5):
     """
@@ -100,9 +93,6 @@ def extract_patches(X_cube, gt, patch_size=5):
     return np.stack(X_patches), np.array(y)
 
 
-# ============================================================
-# Load Preprocessed Data
-# ============================================================
 
 def load_all_processed(
     data_dir,
@@ -141,23 +131,21 @@ def load_all_processed(
             print(f"[WARNING] Missing data in {inst}")
             continue
 
-        cube = np.load(cube_path)  # (bands, H, W)
-        gt = np.load(gt_path)      # (H, W)
+        cube = np.load(cube_path)  
+        gt = np.load(gt_path)      
         if gt.ndim == 3 and gt.shape[-1] == 1:
             gt = gt.squeeze(-1)
 
         pid = inst.name.split('-')[0]
 
         if spatial_enabled:
-            # --- Spatial–Spectral patch extraction ---
             X_patches, y_patches = extract_patches(cube, gt, patch_size)
             X_list.append(X_patches)
             y_list.append(y_patches)
             pid_list.extend([pid] * len(y_patches))
         else:
-            # --- Spectral-only mode (flat pixels) ---
             H, W = gt.shape
-            cube_flat = cube.reshape(cube.shape[0], -1).T   # (H*W, bands)
+            cube_flat = cube.reshape(cube.shape[0], -1).T   
             gt_flat = gt.flatten()
             mask = gt_flat > 0
             X_list.append(cube_flat[mask])
@@ -169,9 +157,6 @@ def load_all_processed(
     return X, y, np.array(pid_list)
 
 
-# ============================================================
-# Simple Patient Split (config-free)
-# ============================================================
 
 def split_by_patient(
     X,

@@ -24,7 +24,6 @@ def load_envi_image(base_path):
     img = spectral.envi.open(hdr_path, str(base_path))
     arr = np.asarray(img.load()).astype(np.float32)
 
-    # Ensure correct shape order (bands, H, W)
     if arr.shape[0] != img.nbands:
         arr = np.transpose(arr, (2, 0, 1))
     return arr
@@ -44,7 +43,6 @@ def load_gt_map(base_path):
     gt = spectral.envi.open(hdr_path, str(base_path))
     gt_map = np.asarray(gt.load()).astype(np.int32)
 
-    # replace NaNs and negatives with 0
     gt_map = np.nan_to_num(gt_map, nan=0).clip(min=0)
     return gt_map
 
@@ -70,7 +68,6 @@ def load_dataset_instance(instance_dir,
     data = {}
 
     def safe_load_image(base_name):
-        # Try lowercase / capitalized variants
         for name in [base_name, base_name.capitalize()]:
             path = d / name
             if path.exists() or (path.with_suffix(".hdr").exists()):
@@ -86,22 +83,18 @@ def load_dataset_instance(instance_dir,
         print(f"[WARNING] Could not load {instance_dir}: {e}")
         return None
 
-    # --- Normalize GT shape ---
     gt = data["gt"]
     if gt.ndim == 3 and gt.shape[-1] == 1:
-        gt = gt.squeeze(-1)  # (H, W, 1) → (H, W)
+        gt = gt.squeeze(-1)  
 
     raw_h, raw_w = data["raw"].shape[1:]
     gt_h, gt_w = gt.shape[:2]
 
-    # --- Handle small mismatches silently ---
     if (raw_h, raw_w) != (gt_h, gt_w):
-        # if difference only by 1 px (rounding, sensor cropping), crop to overlap
         min_h = min(raw_h, gt_h)
         min_w = min(raw_w, gt_w)
         gt = gt[:min_h, :min_w]
         data["raw"] = data["raw"][:, :min_h, :min_w]
-        # optional debug print
         print(f"[INFO] Auto-aligned shapes in {instance_dir}: "
               f"raw→{data['raw'].shape[1:]}, gt→{gt.shape}")
 

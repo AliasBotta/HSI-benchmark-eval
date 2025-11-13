@@ -1,4 +1,3 @@
-# utils/data_reduction.py
 """
 data_reduction.py
 -----------------
@@ -11,9 +10,6 @@ import numpy as np
 from sklearn.cluster import KMeans
 
 
-# ============================================================
-# Spectral Angle Mapper
-# ============================================================
 
 def spectral_angle_mapper(x, y):
     """Compute the spectral angle (in radians) between two spectra."""
@@ -22,16 +18,12 @@ def spectral_angle_mapper(x, y):
     return np.arccos(np.clip(num / denom, -1, 1))
 
 
-# ============================================================
-# Data Reduction (Config-free)
-# ============================================================
 
 def _sam_distances_to_centroid(centroid, points):
     """
     Vectorized SAM distance between a centroid and a set of points.
     Returns angles in radians shape: (N_points,)
     """
-    # Normalize to avoid repeated norms in the loop
     c = centroid / (np.linalg.norm(centroid) + 1e-8)
     p = points / (np.linalg.norm(points, axis=1, keepdims=True) + 1e-8)
     cosang = np.clip(np.sum(p * c[None, :], axis=1), -1.0, 1.0)
@@ -93,19 +85,16 @@ def reduce_training_data(
             continue
 
         if n_c <= target_per_class:
-            # Not enough pixels to reduce; keep all
             X_reduced.append(X_c)
             y_reduced.append(np.full(n_c, c))
             print(f"[Data Reduction] Class {c}: kept all {n_c} (<= target {target_per_class}).")
             continue
 
-        # --- 1) K-means per class ---
-        k = min(clusters_per_class, n_c)  # guard for very small classes
+        k = min(clusters_per_class, n_c)  
         km = KMeans(n_clusters=k, n_init=10, random_state=random_seed)
         labels = km.fit_predict(X_c)
         centroids = km.cluster_centers_
 
-        # --- 2) Select nearest-by-SAM per centroid ---
         selected_idxs = []
         for i in range(k):
             cluster_idx = np.where(labels == i)[0]
@@ -119,7 +108,6 @@ def reduce_training_data(
 
         if selected_idxs:
             sel = np.concatenate(selected_idxs, axis=0)
-            # Cap to target_per_class if we got more due to rounding
             if sel.size > target_per_class:
                 sel = rng.choice(sel, size=target_per_class, replace=False)
             X_reduced.append(X_c[sel])
@@ -127,7 +115,6 @@ def reduce_training_data(
             print(f"[Data Reduction] Class {c}: {sel.size} / target {target_per_class} selected "
                   f"({k} clusters × {per_cluster}).")
         else:
-            # Fallback: random subset if k-means produced empty clusters only
             take = min(target_per_class, n_c)
             sel = rng.choice(n_c, size=take, replace=False)
             X_reduced.append(X_c[sel])

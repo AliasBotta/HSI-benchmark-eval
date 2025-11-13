@@ -14,26 +14,23 @@ from utils.data_loading import list_all_instances, load_dataset_instance
 from utils.preprocessing import preprocess_hsi_cube
 from utils.helpers import ensure_dir, setup_logger
 
-# Input/output directories
-ROOT_DIR = Path("data/hsi_dataset")       # raw dataset root
-PROCESSED_DIR = Path("data/processed")    # preprocessed output
+ROOT_DIR = Path("data/hsi_dataset")       
+PROCESSED_DIR = Path("data/processed")    
 
-# Dataset file naming conventions
 RAW_CUBE_NAME = "raw"
 WHITE_REF_NAME = "whiteReference"
 DARK_REF_NAME = "darkReference"
 GT_MAP_NAME = "gtMap"
 
-# Preprocessing parameters
 REMOVE_BANDS_START = 56
 REMOVE_BANDS_END = 126
 SMOOTHING_ENABLED = True
-SMOOTHING_WINDOW = 5 #convolution window
-ABSORBANCE_CONVERSION = False # I was wrong, the absorbance_conversion was not in the preprocessing pipeline
+SMOOTHING_WINDOW = 5 
+ABSORBANCE_CONVERSION = False 
 NORMALIZATION = "minmax"
 DOWNSAMPLING_ENABLED = True
 FINAL_CHANNELS = 128
-STEP_NM = 3.61 #part of the  final downsampling
+STEP_NM = 3.61 
 
 
 def save_preprocessed_cube(out_dir, cube, gt=None):
@@ -48,7 +45,6 @@ def main():
     logger = setup_logger("outputs/logs", name="preprocess")
     ensure_dir(PROCESSED_DIR)
 
-    # --- List all dataset instances ---
     instances = list_all_instances(ROOT_DIR)
     logger.info(f"Found {len(instances)} dataset instances.")
 
@@ -66,7 +62,6 @@ def main():
             logger.warning(f"Skipping {instance}")
             continue
 
-        # --- Preprocess cube ---
         cube = preprocess_hsi_cube(
             data["raw"],
             data["white_ref"],
@@ -78,10 +73,8 @@ def main():
             normalization=NORMALIZATION,
             downsampling_enabled=DOWNSAMPLING_ENABLED,
             final_channels=FINAL_CHANNELS,
-            #step_nm=STEP_NM,
         )
 
-        # --- Save results ---
         out_dir = PROCESSED_DIR / instance.name
         save_preprocessed_cube(out_dir, cube, data["gt"])
 

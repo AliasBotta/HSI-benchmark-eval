@@ -18,9 +18,6 @@ import numpy as np
 import torch
 
 
-# ============================================================
-# Experiment Setup
-# ============================================================
 
 def set_seed(seed: int = 42):
     """Ensure reproducibility across random, NumPy, and PyTorch."""
@@ -39,9 +36,6 @@ def get_device(preferred: str = "cuda"):
     return torch.device("cpu")
 
 
-# ============================================================
-# Logging Utilities
-# ============================================================
 
 def setup_logger(log_dir: str, name: str = "train", level=logging.INFO):
     """
@@ -58,17 +52,14 @@ def setup_logger(log_dir: str, name: str = "train", level=logging.INFO):
 
     logger = logging.getLogger(name)
     logger.setLevel(level)
-    logger.propagate = False  # avoid duplicate handlers
+    logger.propagate = False  
 
-    # Stream handler (console)
     console_handler = logging.StreamHandler(sys.stdout)
     console_handler.setFormatter(logging.Formatter("%(asctime)s | %(levelname)s | %(message)s"))
 
-    # File handler
     file_handler = logging.FileHandler(log_file)
     file_handler.setFormatter(logging.Formatter("%(asctime)s | %(levelname)s | %(message)s"))
 
-    # Avoid re-adding handlers if already set
     if not logger.handlers:
         logger.addHandler(console_handler)
         logger.addHandler(file_handler)
@@ -77,9 +68,6 @@ def setup_logger(log_dir: str, name: str = "train", level=logging.INFO):
     return logger
 
 
-# ============================================================
-# File and Directory Helpers
-# ============================================================
 
 def ensure_dir(path: str):
     """Create a directory if it doesn’t exist."""
@@ -97,9 +85,6 @@ def list_files(directory: str, extension: str = None):
     return [str(f) for f in files]
 
 
-# ============================================================
-# Timer Context Manager
-# ============================================================
 
 class Timer:
     """Simple context manager for timing code blocks."""
@@ -116,9 +101,6 @@ class Timer:
         print(f"[TIMER] {self.name} finished in {elapsed:.2f}s")
 
 
-# ============================================================
-# Miscellaneous
-# ============================================================
 
 def flatten_dict(d, parent_key="", sep="."):
     """Flatten nested dictionaries (useful for logging simple param dicts)."""

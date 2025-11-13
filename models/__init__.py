@@ -1,4 +1,3 @@
-# models/__init__.py
 """
 Model registry and base interface for HSI benchmark runners.
 
@@ -10,9 +9,6 @@ Each model implements a subclass of BaseRunner providing:
 import numpy as np
 from abc import ABC, abstractmethod
 
-# ============================================================
-# Base Interface
-# ============================================================
 
 class BaseRunner(ABC):
     """
@@ -25,7 +21,7 @@ class BaseRunner(ABC):
     name: str = "base"
 
     @abstractmethod
-    def fit(self, X_train, y_train, X_val=None, y_val=None): # <-- MODIFIED
+    def fit(self, X_train, y_train, X_val=None, y_val=None): 
         """
         Train model on flattened pixel-level spectra.
         X_val and y_val are optionally used for hyperparameter optimization.
@@ -38,9 +34,6 @@ class BaseRunner(ABC):
         pass
 
 
-# ============================================================
-# Factory / Model Switch
-# ============================================================
 
 def get_runner(model_name: str) -> BaseRunner:
     """

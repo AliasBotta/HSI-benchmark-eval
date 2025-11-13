@@ -1,4 +1,3 @@
-# /home/ale/repos/HSI-benchmark-eval/utils/spatial_filtering.py
 
 """
 spatial_filtering.py
@@ -45,7 +44,6 @@ def apply_knn_filter(prob_map, pc1=None, cube=None, K=40, lambda_=1.0,
     """
     print(f"[Spatial Filtering] Applying LOCAL KNN filter (Window={window_size}, K={K})...")
 
-    # --- 1. Compute PC1 if not provided ---
     if pc1 is None:
         if cube is None:
             raise ValueError("KNN filter needs either 'pc1' or 'cube' input.")
@@ -58,13 +56,10 @@ def apply_knn_filter(prob_map, pc1=None, cube=None, K=40, lambda_=1.0,
     n_pixels = H * W
     n_classes = prob_map.shape[1]
     
-    # Ensure prob_map has the right number of pixels (H*W)
     if prob_map.shape[0] != n_pixels:
         raise ValueError(f"Prob map shape ({prob_map.shape[0]}) does not match cube shape ({n_pixels}).")
 
-    # --- 2. Create 2.5D feature space (PC1 + spatial coordinates) ---
     yy, xx = np.mgrid[0:H, 0:W]
-    # Normalize spatial coords by image height to balance scales
     lambda_spatial = lambda_ * H 
     features = np.stack([
         pc1.ravel(), 
@@ -72,41 +67,29 @@ def apply_knn_filter(prob_map, pc1=None, cube=None, K=40, lambda_=1.0,
         lambda_spatial * (yy.ravel() / H)
     ], axis=1)
 
-    # --- 3. Apply local sliding window filter ---
     pad = window_size // 2
     smoothed_full = np.zeros_like(prob_map)
     
-    # We process one row at a time, but fit KNN on its vertical neighborhood
     for r in range(H):
-        # Define the local vertical window (rows)
         r_start = max(0, r - pad)
-        r_end = min(H, r + pad + 1) # +1 for exclusive slice
+        r_end = min(H, r + pad + 1) 
         
-        # Get flattened indices for all pixels in these rows
         idx_start = r_start * W
         idx_end = r_end * W
         
-        # Extract local features and probabilities for the window
         features_local = features[idx_start:idx_end]
         probs_local = prob_map[idx_start:idx_end]
         
-        # Fit KNN *only* on the local window's features
-        n_neighbors_local = min(K + 1, features_local.shape[0]) # +1 for self-inclusion
+        n_neighbors_local = min(K + 1, features_local.shape[0]) 
         nn = NearestNeighbors(n_neighbors=n_neighbors_local, metric=distance, n_jobs=-1)
         nn.fit(features_local)
         
-        # Get features for the single row we are currently processing
         features_current_row = features[r*W : (r+1)*W]
         
-        # Find neighbors for this row *within the local window*
-        # neigh_idx are indices *relative to features_local*
         neigh_idx = nn.kneighbors(features_current_row, return_distance=False)
         
-        # Average neighbor probabilities
-        # Use neigh_idx to gather from probs_local
         smoothed_probs_row = probs_local[neigh_idx].mean(axis=1)
         
-        # Store the result for the current row
         smoothed_full[r*W : (r+1)*W] = smoothed_probs_row
 
     print("[Spatial Filtering] ✅ LOCAL KNN smoothing complete.")

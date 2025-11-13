@@ -1,4 +1,3 @@
-# models/rf_runner.py
 """
 RFRunner (Paper-Compliant)
 --------
@@ -45,16 +44,11 @@ class RFRunner(BaseRunner):
         self.random_state = random_state
         self.n_trees_search_space = n_trees_search_space
 
-        # [cite_start]Metric labels to use for F1-Score, excluding BG [cite: 976]
-        # ASSUMPTION: Labels are 1=NT, 2=TT, 3=BV. BG is 0 or 4.
         self.metric_labels = [1, 2, 3]
 
-        self.clf = None  # The final, optimized classifier
-        self.best_T_ = 0 # Stores the winning hyperparameter
+        self.clf = None  
+        self.best_T_ = 0 
 
-    # ------------------------------------------------------------
-    # Training & Optimization
-    # ------------------------------------------------------------
     def fit(self, X_train, y_train, X_val=None, y_val=None):
         """
         Fit the Random Forest model.
@@ -67,7 +61,6 @@ class RFRunner(BaseRunner):
             print("[RFRunner] ⚠ Empty training set, skipping training.")
             return
 
-        # --- Handle case without validation set (fallback) ---
         if X_val is None or y_val is None:
             print("[RFRunner] ⚠ No validation set provided. Skipping optimization.")
             print("[RFRunner] Training with default T=100.")
@@ -81,7 +74,6 @@ class RFRunner(BaseRunner):
             self.clf.fit(X_train, y_train)
             return
 
-        # [cite_start]--- Paper-Compliant Hyperparameter Optimization [cite: 949] ---
         print(f"[RFRunner] Optimizing T (n_estimators) on validation set.")
         print(f"         Search space: {self.n_trees_search_space}")
 
@@ -96,13 +88,10 @@ class RFRunner(BaseRunner):
                 n_jobs=-1
             )
 
-            # [cite_start]1. Train on the (reduced) training set [cite: 383]
             model.fit(X_train, y_train)
 
-            # [cite_start]2. Evaluate on the validation set [cite: 945]
             y_pred_val = model.predict(X_val)
 
-            # [cite_start]3. Use Macro F1-Score, excluding BG class [cite: 949, 976]
             score = f1_score(
                 y_val,
                 y_pred_val,
@@ -116,13 +105,9 @@ class RFRunner(BaseRunner):
                 self.best_T_ = T
                 best_model = model
 
-        # 4. Store the best model as the final classifier
         self.clf = best_model
         print(f"[RFRunner] ✅ Optimization complete. Best T={self.best_T_} (Val F1={best_score:.4f}).")
 
-    # ------------------------------------------------------------
-    # Prediction
-    # ------------------------------------------------------------
     def predict_full(self, cube):
         """
         Predict pixel-wise classes and probabilities for a full HSI cube.
@@ -144,19 +129,14 @@ class RFRunner(BaseRunner):
 
         bands, H, W = cube.shape
 
-        # Reshape (bands, H, W) -> (bands, H*W) -> (H*W, bands)
         flat_pixels = cube.reshape(bands, -1).T
 
         print(f"[RFRunner] Predicting on cube ({bands} bands, {H}×{W} spatial).")
 
-        # Get (H*W, num_classes) probabilities
         proba = self.clf.predict_proba(flat_pixels)
 
-        # Get (H*W) class predictions
-        # We use .classes_ to map argmax indices to the original label values (e.g., 0, 1, 2, 3)
         class_preds_flat = self.clf.classes_[np.argmax(proba, axis=1)]
 
-        # Reshape back to spatial dimensions
         num_classes = proba.shape[1]
         class_map = class_preds_flat.reshape(H, W)
         prob_all = proba.reshape(H, W, num_classes)

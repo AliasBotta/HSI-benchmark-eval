@@ -1,4 +1,3 @@
-# models/unmixing_runner.py
 """
 UnmixingRunner (Paper-Compliant)
 -----------
@@ -14,11 +13,10 @@ from sklearn.cluster import KMeans
 from sklearn.metrics import f1_score
 from scipy.optimize import minimize
 
-# Disabilitiamo i warning di runtime
 np.seterr(divide='ignore', invalid='ignore')
 
 
-class UnmixingRunner(BaseRunner): # <-- MODIFICATO (Nome Classe)
+class UnmixingRunner(BaseRunner): 
     """
     Runner per EBEAE e NEBEAE.
     Se name="ebeae", esegue il modello lineare.
@@ -26,38 +24,31 @@ class UnmixingRunner(BaseRunner): # <-- MODIFICATO (Nome Classe)
     """
 
     def __init__(self,
-                 name="nebeae", # <-- MODIFICATO: Accetta il nome
+                 name="nebeae", 
                  y_search_space=[0.001, 0.01, 0.1, 1.0],
                  max_ccd_iter=30,
                  ccd_tol=1e-5,
                  random_state=42):
 
         self.name = name
-        self.is_nonlinear = (name == "nebeae") # <-- MODIFICATO: Flag di controllo
+        self.is_nonlinear = (name == "nebeae") 
 
-        # Parametri fissi dal paper (identici per entrambi)
-        [cite_start]self.class_endmembers_count = {0: 2, 1: 2, 2: 1, 3: 3} # NT, TT, BV, BG [cite: 938]
-        [cite_start]self.class_p = {0: 0.3, 1: 0.2, 2: 0.0, 3: 0.01} # [cite: 938]
+        [cite_start]self.class_endmembers_count = {0: 2, 1: 2, 2: 1, 3: 3} 
+        [cite_start]self.class_p = {0: 0.3, 1: 0.2, 2: 0.0, 3: 0.01} 
 
-        # Parametri di ottimizzazione
-        [cite_start]self.y_search_space = y_search_space # [cite: 940]
+        [cite_start]self.y_search_space = y_search_space 
         self.max_ccd_iter = max_ccd_iter
         self.ccd_tol = ccd_tol
         self.random_state = random_state
 
-        # Risultati del fit
-        self.endmembers_ = None          # Matrice Lineare (E)
-        self.nonlinear_terms_ = None   # Matrice Non-Lineare (B)
-        self.endmember_class_map_ = None # Mappa (K_total,) -> Classe
-        self.best_y_ = 0                 # y ottimale trovato
+        self.endmembers_ = None          
+        self.nonlinear_terms_ = None   
+        self.endmember_class_map_ = None 
+        self.best_y_ = 0                 
 
-        # [cite_start]Etichette per la metrica F1 (esclude BG, label 3) [cite: 976]
         self.metric_labels = [0, 1, 2]
 
 
-    # ------------------------------------------------------------
-    # FIT (Ottimizzazione Iperparametro 'y')
-    # ------------------------------------------------------------
 
     def fit(self, X_train, y_train, X_val=None, y_val=None):
         """
@@ -80,19 +71,15 @@ class UnmixingRunner(BaseRunner): # <-- MODIFICATO (Nome Classe)
             print(f"[{self.name.upper()}] ⚠ No validation set, skipping 'y' optimization.")
             self.best_y_ = self.y_search_space[0]
             self.endmembers_ = E_fit
-            self.nonlinear_terms_ = B_fit # Sarà None per EBEAE
+            self.nonlinear_terms_ = B_fit 
             self.endmember_class_map_ = class_map
             return
 
         for y_current in self.y_search_space:
-            # Stima le abbondanze sul set di validazione usando 'y'
-            # <-- MODIFICATO: Passa B_fit solo se non-lineare
             A_val = self._find_abundances(X_val, E_fit, B_fit, y_current)
 
-            # Converti le abbondanze in etichette
             y_pred_val = self._abundances_to_labels(A_val, class_map)
 
-            # [cite_start]Calcola F1-Score (escludendo BG) [cite: 949, 976]
             score = f1_score(
                 y_val,
                 y_pred_val,
@@ -106,15 +93,12 @@ class UnmixingRunner(BaseRunner): # <-- MODIFICATO (Nome Classe)
                 best_score = score
                 self.best_y_ = y_current
                 self.endmembers_ = E_fit
-                self.nonlinear_terms_ = B_fit # Sarà None per EBEAE
+                self.nonlinear_terms_ = B_fit 
                 self.endmember_class_map_ = class_map
 
         print(f"[{self.name.upper()}] ✅ Fit complete. Best y = {self.best_y_} (Val F1={best_score:.4f})")
 
 
-    # ------------------------------------------------------------
-    # PREDICTION (Usa 'y' ottimale)
-    # ------------------------------------------------------------
 
     def predict_full(self, cube):
         """
@@ -125,12 +109,10 @@ class UnmixingRunner(BaseRunner): # <-- MODIFICATO (Nome Classe)
             raise RuntimeError(f"[{self.name.upper()}] ❌ Model not trained. Call .fit() first.")
 
         bands, H, W = cube.shape
-        M_flat = cube.reshape(bands, -1).T # (N_pixels, N_bands)
+        M_flat = cube.reshape(bands, -1).T 
 
         print(f"[{self.name.upper()}] Predicting on cube ({bands} bands, {H}×{W} spatial) using y={self.best_y_}...")
 
-        # A è (N_pixels, K_total)
-        # <-- MODIFICATO: Passa B solo se non-lineare
         A_flat = self._find_abundances(
             M_flat,
             self.endmembers_,
@@ -138,18 +120,13 @@ class UnmixingRunner(BaseRunner): # <-- MODIFICATO (Nome Classe)
             self.best_y_
         )
 
-        # Converte abbondanze in etichette
         class_map, prob_all = self._abundances_to_class_probs(A_flat, self.endmember_class_map_, self.class_endmembers_count.keys())
 
         print(f"[{self.name.upper()}] ✅ Prediction complete.")
         return class_map.reshape(H, W), prob_all.reshape(H, W, -1)
 
 
-    # ------------------------------------------------------------
-    # CORE: Stima Modello (Fase 1 del Fit)
-    # ------------------------------------------------------------
 
-    # <-- MODIFICATO: Rinominato
     def _fit_model_params(self, X, y):
         """
         Trova i parametri E (e B se NEBEAE) usando l'approccio CCD.
@@ -158,19 +135,17 @@ class UnmixingRunner(BaseRunner): # <-- MODIFICATO (Nome Classe)
 
         all_E = []
         all_class_map = []
-        B_bands = X.shape[1] # Numero di bande
+        B_bands = X.shape[1] 
 
-        # 1. Inizializzazione Endmember (E) (Identica per entrambi)
         for c, count in self.class_endmembers_count.items():
             X_c = X[y == c]
 
             if X_c.shape[0] == 0:
                 print(f"[{self.name.upper()}] WARNING: No training pixels for class {c}. Initializing endmember(s) to zero.")
                 E_c = np.zeros((count, B_bands))
-            [cite_start]elif c == 2: # Caso speciale BV [cite: 939]
+            [cite_start]elif c == 2: 
                 E_c = np.mean(X_c, axis=0, keepdims=True)
             else:
-                # Inizializza E con K-Means
                 n_init = min(count, X_c.shape[0])
                 km = KMeans(n_clusters=n_init, n_init=3, random_state=self.random_state)
                 E_c = km.fit(X_c).cluster_centers_
@@ -183,43 +158,33 @@ class UnmixingRunner(BaseRunner): # <-- MODIFICATO (Nome Classe)
         E = np.vstack(all_E)
         class_map = np.concatenate(all_class_map)
 
-        # <-- MODIFICATO: B_nl inizializzato solo per NEBEAE
         B_nl = np.zeros_like(E) if self.is_nonlinear else None
 
-        # Salva E e B iniziali in caso di fallimento
         self.endmembers_ = E
         self.nonlinear_terms_ = B_nl
         self.endmember_class_map_ = class_map
 
-        # 2. Loop CCD (Cyclic Coordinate Descent)
         for i in range(self.max_ccd_iter):
-            # A. Stima Abbondanze (A)
-            # <-- MODIFICATO: Passa B_nl (che è None per EBEAE)
             A = self._find_abundances(X, E, B_nl, y_entropy_weight=0.0)
 
-            # B. Stima Endmember Lineari (E)
-            # <-- MODIFICATO: Calcola il residuo solo se non-lineare
             if self.is_nonlinear:
                 A_sq = A**2
                 X_resid_E = X - (A_sq @ B_nl)
             else:
-                X_resid_E = X # Per EBEAE, il residuo è l'intero segnale
+                X_resid_E = X 
 
             E_new = self._update_parameters_als(X_resid_E, A, class_map, self.class_p, X, y, is_bv_special_case=True)
             diff_E = np.linalg.norm(E - E_new, 'fro') / (np.linalg.norm(E, 'fro') + 1e-9)
             E = E_new
 
-            # C. Stima Termini Non Lineari (B) (Solo per NEBEAE)
-            # <-- MODIFICATO: Blocco condizionale
-            diff_B = 0.0 # Convergenza automatica per EBEAE
+            diff_B = 0.0 
             if self.is_nonlinear:
-                A_sq = A**2 # Ria-calcola A_sq se A è cambiato (anche se non dovrebbe in CCD)
+                A_sq = A**2 
                 X_resid_B = X - (A @ E)
                 B_new = self._update_parameters_als(X_resid_B, A_sq, class_map, self.class_p, X, y, is_bv_special_case=False)
                 diff_B = np.linalg.norm(B_nl - B_new, 'fro') / (np.linalg.norm(B_nl, 'fro') + 1e-9)
                 B_nl = B_new
 
-            # Controllo Convergenza
             if (diff_E < self.ccd_tol) and (diff_B < self.ccd_tol):
                 print(f"[{self.name.upper()}] CCD converged at iteration {i+1}.")
                 break
@@ -244,17 +209,14 @@ class UnmixingRunner(BaseRunner): # <-- MODIFICATO (Nome Classe)
             p = class_p.get(c, 0.0)
             K_c = idx.size
 
-            # Il caso speciale BV si applica solo al termine Lineare E (Passo B)
-            [cite_start]if c == 2 and is_bv_special_case: # [cite: 939]
+            [cite_start]if c == 2 and is_bv_special_case: 
                 X_c_train = X_train[y_train == c]
                 if X_c_train.shape[0] > 0:
                     P_new[idx] = np.mean(X_c_train, axis=0, keepdims=True)
                 else:
-                    # Fallback se la classe BV non è nel training set
                     pix_idx_bv = np.argmax(A_features[:, idx[0]])
                     P_new[idx] = X_train[pix_idx_bv]
             else:
-                # Logica ALS/CCD standard
                 A_c = A_features[:, idx]
                 A_c_T = A_c.T
                 left = A_c_T @ A_c + p * np.eye(K_c)
@@ -268,11 +230,7 @@ class UnmixingRunner(BaseRunner): # <-- MODIFICATO (Nome Classe)
         P_new[P_new < 0] = 0
         return P_new
 
-    # ------------------------------------------------------------
-    # CORE: Stima Abbondanze (UNIFICATA)
-    # ------------------------------------------------------------
 
-    # <-- MODIFICATO: Rinominata e unificata
     def _find_abundances(self, X_pixels, E, B, y_entropy_weight):
         """
         Trova le abbondanze A per tutti i pixel, dati E, y, e (opzionalmente) B.
@@ -288,28 +246,20 @@ class UnmixingRunner(BaseRunner): # <-- MODIFICATO (Nome Classe)
         a_init = np.full(K_total, 1.0 / K_total)
 
         for i in range(N_pixels):
-            m = X_pixels[i] # Pixel corrente (1, B_bands)
+            m = X_pixels[i] 
 
             def objective(a):
-                # a è (K_total,)
 
-                # --- MODELLO DI MIXING CONDIZIONALE ---
-                # Termine Lineare (sempre presente)
                 x_pred = a @ E
 
-                # Termine Non-Lineare (solo per NEBEAE)
                 if self.is_nonlinear and B is not None:
                     a_sq = a**2
                     x_pred = x_pred + a_sq @ B
-                # --- FINE BLOCCO CONDIZIONALE ---
 
-                # Termine 1: Errore di ricostruzione
                 recon_error = 0.5 * np.sum((x_pred - m)**2)
 
-                # Termine 2: Entropia (regolarizzazione 'y')
                 a_log = a.copy()
                 a_log[a_log < 1e-9] = 1e-9
-                # L'entropia è MASSIMIZZATA, quindi SOTTRATTA dalla loss
                 entropy = -np.sum(a * np.log(a_log))
 
                 return recon_error - y_entropy_weight * entropy
@@ -327,9 +277,6 @@ class UnmixingRunner(BaseRunner): # <-- MODIFICATO (Nome Classe)
         return A_out
 
 
-    # ------------------------------------------------------------
-    # Helpers (Identici per entrambi)
-    # ------------------------------------------------------------
 
     def _abundances_to_class_probs(self, A_flat, class_map, class_labels):
         N_pixels, K_total = A_flat.shape

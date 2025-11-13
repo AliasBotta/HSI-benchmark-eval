@@ -10,9 +10,6 @@ import numpy as np
 from scipy.ndimage import uniform_filter1d
 
 
-# ============================================================
-# Calibration and Noise Correction
-# ============================================================
 
 def calibrate_hsi(raw, white, dark):
     """
@@ -32,7 +29,7 @@ def smooth_spectral(data, window_size=5):
     """
     if window_size < 2:
         return data
-    return uniform_filter1d(data, size=window_size, axis=0, mode="nearest") #1d convolution
+    return uniform_filter1d(data, size=window_size, axis=0, mode="nearest") 
 
 
 def remove_noisy_channels(data, start, end):
@@ -49,9 +46,6 @@ def remove_noisy_channels(data, start, end):
     return data[start:n_bands - end]
 
 
-# ============================================================
-# Spectral Processing
-# ============================================================
 
 def downsample_spectrum(data, final_channels=128):
     """
@@ -70,23 +64,17 @@ def normalize_minmax(data):
     Normalize cube values PIXEL-WISE to [0, 1] to focus on spectral shape.
     This is the method (per-pixel normalization) described in the paper.
     """
-    # Input shape: (bands, H, W)
     bands, H, W = data.shape
     
-    # Reshape to (H*W, bands)
     flat = data.reshape(bands, -1).T
     
-    # Calculate min/max per pixel (row-wise)
     min_vals = flat.min(axis=1, keepdims=True)
     max_vals = flat.max(axis=1, keepdims=True)
     
-    # Calculate denominator, adding epsilon for flat spectra (max=min)
     denom = max_vals - min_vals + 1e-8
     
-    # Apply normalization
     norm_flat = (flat - min_vals) / denom
     
-    # Reshape back to (bands, H, W)
     return norm_flat.T.reshape(bands, H, W)
 
 
@@ -99,9 +87,6 @@ def convert_to_absorbance(reflectance):
     return -np.log(reflectance)
 
 
-# ============================================================
-# Full Preprocessing Chain
-# ============================================================
 
 def preprocess_hsi_cube(
     raw,
@@ -126,25 +111,19 @@ def preprocess_hsi_cube(
     Returns:
         cube: np.ndarray of shape (bands, H, W)
     """
-    # 1. Radiometric calibration
     cube = calibrate_hsi(raw, white, dark)
 
-    # 2. Smoothing
     if smoothing_enabled:
         cube = smooth_spectral(cube, window_size=smoothing_window)
 
-    # 3. Remove noisy bands
     cube = remove_noisy_channels(cube, *remove_bands)
 
-    # 4. Absorbance conversion
     if absorbance_conversion:
         cube = convert_to_absorbance(cube)
 
-    # 5. Spectral downsampling
     if downsampling_enabled:
         cube = downsample_spectrum(cube, final_channels=final_channels)
 
-    # 6. Normalization
     if normalization == "minmax":
         cube = normalize_minmax(cube)
 
