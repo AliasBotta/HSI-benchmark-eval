@@ -79,10 +79,10 @@ def get_runner(model_name: str) -> BaseRunner:
         from .rf_runner import RFRunner
         return RFRunner()
     if name in {"ebeae"}:
-        from .ebae_runner import EBEAERunner
-        return EBEAERunner()
+        from .unmixing_runner import UnmixingRunner
+        return UnmixingRunner(name="ebeae")
     if name in {"nebeae"}:
-        from .nebae_runner import NEBEAERunner
-        return NEBEAERunner()
+        from .unmixing_runner import UnmixingRunner
+        return UnmixingRunner(name="nebae")
 
     raise ValueError(f"[Model Registry] ❌ Unknown model name: {model_name}")

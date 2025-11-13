@@ -77,24 +77,24 @@ def load_summary_data(latest_runs: dict) -> pd.DataFrame:
 
     # <--- START MODIFICATION: Hardcode EBEAE if not found ---
     # Check if 'ebeae' was requested but NOT found
-    if "ebeae" in MODELS_TO_PLOT and "ebeae" not in latest_runs:
-        print("[Plotter] ⚠ 'ebeae' data not found. Injecting hardcoded log data for Fig. 6a...")
-
-        # Data manually extracted from log: train_ebeae_20251111_030806.log
-        # (These are the per-fold averages calculated previously)
-        hardcoded_ebeae_data = {
-            'fold': ['1', '2', '3', '4', '5'], # Index must be 'fold'
-            'spectral_f1_macro': [0.1323, 0.2375, 0.3058, 0.2670, 0.4064],
-            'spatial_f1_macro': [0.1203, 0.2289, 0.3078, 0.2709, 0.3963],
-            'mv_f1_macro': [0.1203, 0.1970, 0.2932, 0.2106, 0.3303],
-            'model': ['EBEAE', 'EBEAE', 'EBEAE', 'EBEAE', 'EBEAE']
-        }
-
-        # Set 'fold' as the index to align with loaded data
-        df_ebeae = pd.DataFrame(hardcoded_ebeae_data).set_index('fold')
-
-        # Add the hardcoded data to the list
-        all_data.append(df_ebeae)
+    # if "ebeae" in MODELS_TO_PLOT and "ebeae" not in latest_runs:
+    #     print("[Plotter] ⚠ 'ebeae' data not found. Injecting hardcoded log data for Fig. 6a...")
+    #
+    #     # Data manually extracted from log: train_ebeae_20251111_030806.log
+    #     # (These are the per-fold averages calculated previously)
+    #     hardcoded_ebeae_data = {
+    #         'fold': ['1', '2', '3', '4', '5'], # Index must be 'fold'
+    #         'spectral_f1_macro': [0.1323, 0.2375, 0.3058, 0.2670, 0.4064],
+    #         'spatial_f1_macro': [0.1203, 0.2289, 0.3078, 0.2709, 0.3963],
+    #         'mv_f1_macro': [0.1203, 0.1970, 0.2932, 0.2106, 0.3303],
+    #         'model': ['EBEAE', 'EBEAE', 'EBEAE', 'EBEAE', 'EBEAE']
+    #     }
+    #
+    #     # Set 'fold' as the index to align with loaded data
+    #     df_ebeae = pd.DataFrame(hardcoded_ebeae_data).set_index('fold')
+    #
+    #     # Add the hardcoded data to the list
+    #     all_data.append(df_ebeae)
     # <--- END MODIFICATION ---
 
     if not all_data:
