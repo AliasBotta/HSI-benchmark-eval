@@ -1,4 +1,4 @@
-"""
+""""
 Complete pipeline (paper-aligned):
 RAW → Preprocess (already done) → PCA(1) → Supervised(ClassMap, probAllImage)
 → KNN filter (knn.classMap, knn.mapProb) → HKM + Majority Voting (mv.classMap)
@@ -12,6 +12,7 @@ Each model is implemented in models/<model>.py and must return:
 
 Usage:
     python3 -m scripts.train --model model_name
+    python3 -m scripts.train --model model_name --only-classifier
 """
 
 import argparse
@@ -41,11 +42,11 @@ GLOBAL_OUTPUT_DIR = Path("outputs")
 PROCESSED_DIR = Path("data/processed")
 
 N_FOLDS = 5
-SPLIT = (0.6, 0.2, 0.2)  
+SPLIT = (0.6, 0.2, 0.2)
 
 REDUCTION_ENABLED = True
-REDUCTION_CLUSTERS = 100          
-REDUCTION_TARGET_PER_CLASS = 1000 
+REDUCTION_CLUSTERS = 100
+REDUCTION_TARGET_PER_CLASS = 1000
 
 KNN_ENABLED = True
 KNN_K = 40
@@ -81,7 +82,7 @@ def _make_patient_folds(instances, n_folds=N_FOLDS, split=SPLIT, random_seed=SEE
     n_total = len(pids)
     n_train = int(split[0] * n_total)
     n_val = int(split[1] * n_total)
-    n_test = max(1, n_total - n_train - n_val)  
+    n_test = max(1, n_total - n_train - n_val)
 
     folds = []
     for k in range(n_folds):
@@ -109,10 +110,10 @@ def _gather_training_pixels(processed_dir: Path, instances, train_pids):
         pid = _pid_from_name(d.name)
         if pid not in train_pids:
             continue
-        cube = np.load(d / "preprocessed_cube.npy")      
-        gt = np.load(d / "gtMap.npy")                    
+        cube = np.load(d / "preprocessed_cube.npy")
+        gt = np.load(d / "gtMap.npy")
         bands, H, W = cube.shape
-        flat = cube.reshape(bands, -1).T                 
+        flat = cube.reshape(bands, -1).T
         gt_f = gt.reshape(-1)
         m = gt_f > 0
         if m.any():
@@ -131,12 +132,12 @@ def _evaluate_map(gt_map, pred_map):
     pr = pred_map.flatten()
 
     mask_labeled = gt > 0
-    gt = gt[mask_labeled] - 1                      
-    pr = pr[mask_labeled]                          
+    gt = gt[mask_labeled] - 1
+    pr = pr[mask_labeled]
 
     keep = gt != 3
-    gt = gt[keep]                                  
-    pr = pr[keep]                                  
+    gt = gt[keep]
+    pr = pr[keep]
 
     pr_eval = np.where(pr > 2, -1, pr)
     return compute_all_metrics(gt, pr_eval, num_classes=3, labels=[0, 1, 2])
@@ -150,7 +151,7 @@ def _flatten_metrics_dict(m_dict, prefix):
     return row
 
 
-def main(model_name: str):
+def main(model_name: str, only_classifier: bool = False):
     set_seed(SEED)
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -159,6 +160,10 @@ def main(model_name: str):
 
     logger = setup_logger(run_output_dir, name=f"train_{model_name}")
     logger.info(f"Run output directory: {run_output_dir}")
+
+    if only_classifier:
+        logger.warning("Modalità --only-classifier ATTIVA. "
+                       "Gli step KNN Filter e Majority Voting verranno saltati.")
 
     processed_dir = PROCESSED_DIR
     instances = _list_processed_instances(processed_dir)
@@ -188,8 +193,8 @@ def main(model_name: str):
 
         if Xtr_raw.size == 0 or Xval_raw.size == 0:
             logger.warning(f"[Fold {k}] Empty training or validation set. Skipping this fold.")
-            all_fold_runners.append(None) 
-            all_fold_results.append(pd.DataFrame()) 
+            all_fold_runners.append(None)
+            all_fold_results.append(pd.DataFrame())
             continue
 
         cls, cnt = np.unique(ytr_raw, return_counts=True)
@@ -209,7 +214,7 @@ def main(model_name: str):
         cls_r, cnt_r = np.unique(ytr, return_counts=True)
         logger.info(f"[Fold {k}] Reduced class distribution: {dict(zip(cls_r, cnt_r))}")
 
-        runner.fit(Xtr, ytr, Xval, yval) 
+        runner.fit(Xtr, ytr, Xval, yval)
         logger.info(f"[Fold {k}] Model training complete")
 
         all_fold_runners.append(runner)
@@ -220,50 +225,80 @@ def main(model_name: str):
             if pid not in test_p:
                 continue
 
-            cube = np.load(d / "preprocessed_cube.npy")  
-            gt = np.load(d / "gtMap.npy")              
+            cube = np.load(d / "preprocessed_cube.npy")
+            gt = np.load(d / "gtMap.npy")
             bands, H, W = cube.shape
 
-            if not np.any(gt == 2):
+            if not np.any(gt == 2): # Il tuo check sul tumore (classe 2 in GT 1-indexed)
                 logger.warning(f"[Fold {k} | PID {pid} | {d.name}] Skipping image: "
                                f"No tumor (TT) pixels found in Ground Truth.")
                 continue
 
-            pca = PCA(n_components=1)
-            pca_img = pca.fit_transform(cube.reshape(bands, -1).T).reshape(H, W)
-
-            class_map, prob_all = runner.predict_full(cube)  
+            # --- 1. GENERA LA PREDIZIONE "SPECTRAL" ---
+            class_map, prob_all = runner.predict_full(cube)  # <-- Questa è la mappa che vuoi
             if prob_all.shape[-1] != 4:
                 raise ValueError("Model must output probabilities with 4 channels [NT, TT, BV, BG].")
 
-            prob_flat = prob_all.reshape(-1, prob_all.shape[-1])
-            prob_knn_flat = apply_knn_filter(
-                prob_flat, pc1=pca_img, cube=cube,
-                K=KNN_K, window_size=KNN_WINDOW,
-                lambda_=KNN_LAMBDA, distance=KNN_DISTANCE
-            )
-            class_knn = np.argmax(prob_knn_flat, axis=1).reshape(H, W)
+            # --- 2. SALVA I FILE .NPY (LA TUA RICHIESTA) ---
+            # (Questo blocco è invariato e verrà eseguito sempre)
+            pred_output_dir = run_output_dir / f"fold_{k}_predictions"
+            ensure_dir(pred_output_dir)
+            img_name = d.name
+            pred_path = pred_output_dir / f"{img_name}_spectral_pred.npy"
+            np.save(pred_path, class_map)
+            gt_path = pred_output_dir / f"{img_name}_gt.npy"
+            if not gt_path.exists():
+                np.save(gt_path, gt)
 
-            class_mv = majority_voting(
-                class_knn,
-                pc1=pca_img, 
-                cube=cube,
-                n_clusters=HKM_CLUSTERS
-            )
+            # --- 3. IL RESTO DELLA PIPELINE DIVENTA CONDIZIONALE ---
 
+            # Calcola sempre le metriche spectral
             m_spec = _evaluate_map(gt, class_map)
-            m_knn = _evaluate_map(gt, class_knn)
-            m_mv = _evaluate_map(gt, class_mv)
 
-            row = {"fold": k, "patient": pid}
+            # Inizializza la riga del CSV solo con i dati spectral
+            row = {"fold": k, "patient": pid, "image_name": img_name}
             row.update(_flatten_metrics_dict(m_spec, "spectral"))
-            row.update(_flatten_metrics_dict(m_knn, "spatial"))
-            row.update(_flatten_metrics_dict(m_mv, "mv"))
 
+            # Prepara il messaggio di log (per ora parziale)
+            log_msg_f1 = f"[Fold {k} | PID {pid}] F1: Spec={row['spectral_f1_macro']:.3f}"
+
+            if not only_classifier:
+                # Esegui PCA (necessario per KNN e MV)
+                pca = PCA(n_components=1)
+                pca_img = pca.fit_transform(cube.reshape(bands, -1).T).reshape(H, W)
+
+                # Esegui KNN Filter
+                prob_flat = prob_all.reshape(-1, prob_all.shape[-1])
+                prob_knn_flat = apply_knn_filter(
+                    prob_flat, pc1=pca_img, cube=cube,
+                    K=KNN_K, window_size=KNN_WINDOW,
+                    lambda_=KNN_LAMBDA, distance=KNN_DISTANCE
+                )
+                class_knn = np.argmax(prob_knn_flat, axis=1).reshape(H, W)
+
+                # Esegui Majority Voting
+                class_mv = majority_voting(
+                    class_knn,
+                    pc1=pca_img,
+                    cube=cube,
+                    n_clusters=HKM_CLUSTERS
+                )
+
+                # Calcola metriche per KNN e MV
+                m_knn = _evaluate_map(gt, class_knn)
+                m_mv = _evaluate_map(gt, class_mv)
+
+                # Aggiorna la riga del CSV
+                row.update(_flatten_metrics_dict(m_knn, "spatial"))
+                row.update(_flatten_metrics_dict(m_mv, "mv"))
+
+                # Completa il messaggio di log
+                log_msg_f1 += (f" → KNN={row['spatial_f1_macro']:.3f} "
+                               f"→ MV={row['mv_f1_macro']:.3f}")
+
+            # Salva la riga (completa o parziale) e stampa il log
             fold_rows.append(row)
-
-            logger.info(f"[Fold {k} | PID {pid}] F1: Spec={row['spectral_f1_macro']:.3f} "
-                        f"→ KNN={row['spatial_f1_macro']:.3f} → MV={row['mv_f1_macro']:.3f}")
+            logger.info(log_msg_f1)
 
         all_fold_results.append(pd.DataFrame(fold_rows))
 
@@ -278,7 +313,8 @@ def main(model_name: str):
     logger.info(f"📊 Saved raw per-image metrics → {raw_metrics_path}")
 
     if not df_all_images.empty:
-        metric_cols = [col for col in df_all_images.columns if col not in ['fold', 'patient']]
+        # Calcola la media (questo funziona anche se le colonne 'spatial' e 'mv' mancano)
+        metric_cols = [col for col in df_all_images.columns if col not in ['fold', 'patient', 'image_name']]
         summary = df_all_images.groupby("fold")[metric_cols].mean()
 
         summary.loc["mean"] = summary.mean()
@@ -290,18 +326,27 @@ def main(model_name: str):
 
         try:
             valid_folds = [f for f in range(1, N_FOLDS + 1) if f in summary.index]
-            fold_scores = summary.loc[valid_folds, "spatial_f1_macro"] 
+
+            if only_classifier or "spatial_f1_macro" not in summary.columns:
+                median_metric_key = "spectral_f1_macro"
+                logger.info("Identifying median model based on 'spectral_f1_macro'")
+            else:
+                median_metric_key = "spatial_f1_macro"
+                logger.info("Identifying median model based on 'spatial_f1_macro'")
+
+            fold_scores = summary.loc[valid_folds, median_metric_key]
 
             if not fold_scores.empty:
                 median_score = fold_scores.median()
 
-                median_fold_num = (fold_scores - median_score).abs().idxmin() 
-                median_fold_idx = median_fold_num - 1 
+                median_fold_num = (fold_scores - median_score).abs().idxmin()
+                median_fold_idx = median_fold_num - 1
 
                 median_runner = all_fold_runners[median_fold_idx]
 
                 if median_runner is not None:
-                    logger.info(f"Median fold identified: Fold {median_fold_num} (Score: {fold_scores.loc[median_fold_num]:.4f}, Median: {median_score:.4f})")
+                    logger.info(f"Median fold identified: Fold {median_fold_num} "
+                                f"(Score: {fold_scores.loc[median_fold_num]:.4f}, Median: {median_score:.4f})")
 
                     if model_name == "dnn":
                         model_path = run_output_dir / "median_model.pth"
@@ -314,7 +359,7 @@ def main(model_name: str):
                 else:
                     logger.warning(f"Median fold ({median_fold_num}) was skipped, cannot save model.")
             else:
-                 logger.warning("No valid fold scores found, cannot determine median model.")
+                logger.warning("No valid fold scores found, cannot determine median model.")
 
         except Exception as e:
             logger.error(f"❌ Failed to save median model: {e}")
@@ -327,5 +372,9 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--model", required=True,
                     help="Model name (dnn, svm-l, svm-rbf, knn-e, rf, ebeae, nebeae)")
+    ap.add_argument("--only-classifier",
+                    action="store_true",
+                    help="Only run the base classifier (Spectral) and skip spatial/MV steps.")
     args = ap.parse_args()
-    main(args.model)
+    # Passa il nuovo argomento alla funzione main
+    main(args.model, only_classifier=args.only_classifier)

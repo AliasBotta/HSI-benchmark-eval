@@ -77,5 +77,8 @@ def get_runner(model_name: str) -> BaseRunner:
     if name in {"nebeae"}:
         from .unmixing_runner import UnmixingRunner
         return UnmixingRunner(name="nebae")
+    if name in {"random"}:
+        from .random_runner import RandomRunner
+        return RandomRunner()
 
     raise ValueError(f"[Model Registry] ❌ Unknown model name: {model_name}")
