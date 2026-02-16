@@ -244,8 +244,8 @@ def main(model_name: str, only_classifier: bool = False):
             pred_output_dir = run_output_dir / f"fold_{k}_predictions"
             ensure_dir(pred_output_dir)
             img_name = d.name
-            pred_path = pred_output_dir / f"{img_name}_spectral_pred.npy"
-            np.save(pred_path, class_map)
+            # pred_path = pred_output_dir / f"{img_name}_spectral_pred.npy"
+            # np.save(pred_path, class_map)
             gt_path = pred_output_dir / f"{img_name}_gt.npy"
             if not gt_path.exists():
                 np.save(gt_path, gt)
@@ -274,6 +274,19 @@ def main(model_name: str, only_classifier: bool = False):
                     K=KNN_K, window_size=KNN_WINDOW,
                     lambda_=KNN_LAMBDA, distance=KNN_DISTANCE
                 )
+
+                # --- [INIZIO MODIFICA] SALVATAGGIO PROBABILITÀ SPAZIALI ---
+                # Reshape da (N_pixels, 4) a (H, W, 4)
+                prob_knn_map = prob_knn_flat.reshape(H, W, -1)
+
+                # Definisci il nome del file (es. 012-01_spatial_probs.npy)
+                # Nota: pred_output_dir è già definito sopra
+                probs_path = pred_output_dir / f"{img_name}_spatial_probs.npy"
+
+                # Salva come float32 per risparmiare spazio (importante con le probabilità)
+                np.save(probs_path, prob_knn_map.astype(np.float32))
+                # --- [FINE MODIFICA] --------------------------------------
+
                 class_knn = np.argmax(prob_knn_flat, axis=1).reshape(H, W)
 
                 # Esegui Majority Voting
