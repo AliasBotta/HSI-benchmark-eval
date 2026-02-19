@@ -93,18 +93,18 @@ def plot_fig6a_f1_boxplot(summary_data: pd.DataFrame, save_path: Path):
         "spectral_f1_macro": "Spectral",
         "spatial_f1_macro": "Spatial/Spectral",
         "mv_f1_macro": "Majority Voting",
-        "spectral_f1": "Spectral", 
-        "spatial_f1": "Spatial/Spectral", 
-        "mv_f1": "Majority Voting" 
+        "spectral_f1": "Spectral",
+        "spatial_f1": "Spatial/Spectral",
+        "mv_f1": "Majority Voting"
     }
 
     cols_to_plot = [col for col in f1_cols_map if col in df_folds.columns]
 
     if not cols_to_plot:
-        print("[Plotter] ❌ No F1-Score columns found (e.g., 'spatial_f1_macro'). Cannot generate Fig. 6a.")
+        print("[Plotter] ❌ No F1-Score columns found. Cannot generate Fig. 6a.")
         return
 
-    df_f1 = df_folds[['model'] + list(set(cols_to_plot))] 
+    df_f1 = df_folds[['model'] + list(set(cols_to_plot))]
 
     df_melted = df_f1.melt(
         id_vars=['model'],
@@ -114,21 +114,25 @@ def plot_fig6a_f1_boxplot(summary_data: pd.DataFrame, save_path: Path):
     )
     df_melted['Pipeline'] = df_melted['Pipeline'].map(f1_cols_map)
 
+    # --- MODIFICA QUI: Definisci l'ordine desiderato ---
+    desired_order = ["Spectral", "Spatial/Spectral", "Majority Voting"]
+
     plt.figure(figsize=(14, 8))
     sns.boxplot(
         data=df_melted,
         x='model',
         y='Macro F1-Score',
         hue='Pipeline',
-        order=MODEL_ORDER, 
-        palette="muted", 
-        notch=True       
+        hue_order=desired_order,  # <--- AGGIUNGI QUESTO PARAMETRO
+        order=MODEL_ORDER,
+        palette="muted",
+        notch=True
     )
 
     plt.title("Fig. 6a (Replica): Macro F1-Score (Test Set, 5 Folds)", fontsize=16)
     plt.ylabel("Macro F1-Score", fontsize=12)
     plt.xlabel("Classifier", fontsize=12)
-    plt.ylim(0.0, 1.0) 
+    plt.ylim(0.0, 1.0)
     plt.legend(title="Pipeline")
     plt.grid(axis='y', linestyle='--', alpha=0.7)
 
