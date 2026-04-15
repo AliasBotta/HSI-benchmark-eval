@@ -2,7 +2,7 @@
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-This repository provides a complete Python framework for the processing, training, and evaluation of Machine Learning models applied to *in-vivo* Hyperspectral Imaging (HSI) for neurosurgery. 
+This repository covers processing, training, and evaluation of Machine Learning models applied to *in-vivo* Hyperspectral Imaging (HSI) for neurosurgery. 
 
 It originally serves as a modular re-implementation of the benchmark paper:
 > *"Hyperspectral imaging benchmark based on machine learning for intraoperative brain tumour detection"* (León et al., IEEE Access).
@@ -11,7 +11,7 @@ It originally serves as a modular re-implementation of the benchmark paper:
 
 ---
 
-## 🧠 Key Contributions & Features
+## Key Contributions & Features
 
 1. **Patient-Level Cross-Validation:** A custom robust 5-fold CV split ensuring zero inter-patient data leakage.
 2. **Baseline Replication:** Implementation of the full HSI preprocessing pipeline and benchmark classifiers (SVM, RF, 1D-DNN, KNN, EBEAE).
@@ -24,7 +24,7 @@ It originally serves as a modular re-implementation of the benchmark paper:
 
 ---
 
-## 📂 Project Structure
+## Project Structure
 
 ```text
 ├── data/                  # Ignored: Place InVivoBench raw datasets here
@@ -37,7 +37,7 @@ It originally serves as a modular re-implementation of the benchmark paper:
 
 ---
 
-## ⚙️ Installation
+## Installation
 
 1. **Clone the repository:**
    ```bash
@@ -56,7 +56,7 @@ It originally serves as a modular re-implementation of the benchmark paper:
 
 ---
 
-## 🚀 Usage
+## Usage
 
 ### 1. Preprocessing
 Run the standardized preprocessing pipeline (radiometric calibration, smoothing, band removal, downsampling, normalization):
