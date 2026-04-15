@@ -138,9 +138,11 @@ def plot_final_comparison(df, save_path):
 
     # Evidenzia area critica
     ax = g.ax
-    # Sfondo grigio leggero sotto le metriche tumorali
-    ax.axvspan(0.5, 1.5, color='gray', alpha=0.1)
-    ax.text(1, 1.02, "AREA CRITICA (TUMORE)", ha='center', fontsize=10, fontweight='bold', color='#555')
+    # Sfondo grigio leggero sotto le metriche tumorali: copre Sens (x=0) e Spec (x=1)
+    ax.axvspan(-0.5, 1.5, color='gray', alpha=0.1)
+
+    # Posiziona il testo esattamente al centro tra le due metriche (x=0.5)
+    ax.text(0.5, 1.02, "AREA CRITICA (TUMORE)", ha='center', fontsize=10, fontweight='bold', color='#555')
 
     g.fig.suptitle("Analisi Dettagliata: Modelli Singoli vs Strategie Ensemble", fontsize=20, y=1.05)
     g.savefig(save_path, dpi=300, bbox_inches='tight')

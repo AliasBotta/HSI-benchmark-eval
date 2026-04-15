@@ -70,7 +70,6 @@ def load_summary_data(latest_runs: dict) -> pd.DataFrame:
         except Exception as e:
             print(f"[Plotter] ❌ Error loading {folder_path / 'metrics_summary.csv'}: {e}")
 
-
     if not all_data:
         return pd.DataFrame()
 
@@ -78,7 +77,7 @@ def load_summary_data(latest_runs: dict) -> pd.DataFrame:
 
 def plot_fig6a_f1_boxplot(summary_data: pd.DataFrame, save_path: Path):
     """
-    Generates the Macro F1-Score boxplot (like Fig. 6a).
+    Generates the Macro F1-Score boxplot (like Fig. 6a) optimized for slides.
     """
     print("[Plotter] Generating Fig. 6a (Macro F1 Boxplot)...")
 
@@ -114,36 +113,47 @@ def plot_fig6a_f1_boxplot(summary_data: pd.DataFrame, save_path: Path):
     )
     df_melted['Pipeline'] = df_melted['Pipeline'].map(f1_cols_map)
 
-    # --- MODIFICA QUI: Definisci l'ordine desiderato ---
     desired_order = ["Spectral", "Spatial/Spectral", "Majority Voting"]
 
+    # Imposta il contesto per slide
+    sns.set_context("talk", font_scale=1.2)
+
     plt.figure(figsize=(14, 8))
-    sns.boxplot(
+    ax = sns.boxplot(
         data=df_melted,
         x='model',
         y='Macro F1-Score',
         hue='Pipeline',
-        hue_order=desired_order,  # <--- AGGIUNGI QUESTO PARAMETRO
+        hue_order=desired_order,  
         order=MODEL_ORDER,
         palette="muted",
         notch=True
     )
 
-    plt.title("Fig. 6a (Replica): Macro F1-Score (Test Set, 5 Folds)", fontsize=16)
-    plt.ylabel("Macro F1-Score", fontsize=12)
-    plt.xlabel("Classifier", fontsize=12)
+    # Ingrandisci testi
+    plt.title("Fig. 6a (Replica): Macro F1-Score (Test Set, 5 Folds)", fontsize=22, pad=20)
+    plt.ylabel("Macro F1-Score", fontsize=20)
+    plt.xlabel("Classifier", fontsize=20)
+    plt.xticks(fontsize=16)
+    plt.yticks(fontsize=16)
     plt.ylim(0.0, 1.0)
-    plt.legend(title="Pipeline")
+    
+    # Ingrandisci legenda
+    plt.legend(title="Pipeline", fontsize=16, title_fontsize=18, loc='lower right')
+    
     plt.grid(axis='y', linestyle='--', alpha=0.7)
 
-    plt.savefig(save_path)
+    # Salva ad alta risoluzione
+    plt.savefig(save_path, dpi=300, bbox_inches='tight')
     plt.close()
+    
+    # Resetta lo stile per non interferire con altri plot
+    sns.reset_orig()
     print(f"[Plotter] ✅ Figure saved to: {save_path}")
 
 def plot_fig6b_bars(summary_data: pd.DataFrame, save_path: Path):
     """
-    Generates the grouped bar plot for OA, Sensitivity, Specificity (like Fig. 6b).
-    Uses only the 'Spatial/Spectral' pipeline data from the 5 folds.
+    Generates the grouped bar plot for OA, Sensitivity, Specificity (like Fig. 6b) optimized for slides.
     """
     print("[Plotter] Generating Fig. 6b (Grouped Metrics Bar Plot)...")
 
@@ -185,6 +195,9 @@ def plot_fig6b_bars(summary_data: pd.DataFrame, save_path: Path):
     df_melted['Metric'] = df_melted['Metric'].map(metrics_map)
     df_melted = df_melted.dropna(subset=['Metric'])
 
+    # Imposta il contesto per slide
+    sns.set_context("talk", font_scale=1.2)
+
     g = sns.catplot(
         data=df_melted,
         x='Metric',           
@@ -200,23 +213,35 @@ def plot_fig6b_bars(summary_data: pd.DataFrame, save_path: Path):
         aspect=2.5
     )
 
-    g.set_axis_labels("Metric", "Mean Value")
-    g.set_xticklabels(rotation=0)
-    g.set(ylim=(0, 1.1))
+    # Ingrandisci etichette degli assi
+    g.set_axis_labels("Metric", "Mean Value", fontsize=20)
+    g.set_xticklabels(rotation=0, fontsize=18)
+    
+    # Ingrandisci i tick dell'asse Y
+    for ax in g.axes.flat:
+        ax.tick_params(axis='y', labelsize=16)
 
+    g.set(ylim=(0, 1.1))
     g.ax.grid(axis='y', linestyle='--', alpha=0.7)
 
+    # Ingrandisci la legenda e sistemala in alto
     sns.move_legend(
         g,
         loc='upper center',
         bbox_to_anchor=(0.5, 1.15), 
         ncol=8,
         title='Classifier',
-        frameon=True
+        frameon=True,
+        fontsize=16,
+        title_fontsize=18
     )
 
-    g.fig.savefig(save_path, bbox_inches='tight')
+    # Salva ad alta risoluzione
+    g.fig.savefig(save_path, dpi=300, bbox_inches='tight')
     plt.close('all') 
+    
+    # Resetta lo stile
+    sns.reset_orig()
     print(f"[Plotter] ✅ Figure saved to: {save_path}")
 
 
