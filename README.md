@@ -7,7 +7,7 @@ This repository covers processing, training, and evaluation of Machine Learning 
 It originally serves as a modular re-implementation of the benchmark paper:
 > *"Hyperspectral imaging benchmark based on machine learning for intraoperative brain tumour detection"* (León et al., IEEE Access).
 
-**Beyond the baseline**, this project introduces the core contributions of my Degree Thesis, focusing on **Risk-Aware Decision Support Systems** via advanced Ensemble architectures and Predictive Uncertainty Decomposition.
+**Beyond the baseline**, this project introduces the core contributions of my Bachelor's degree Thesis, focusing on **Risk-Aware Decision Support Systems** via advanced Ensemble architectures and Predictive Uncertainty Decomposition.
 
 ---
 
